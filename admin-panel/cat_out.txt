@@ -1,0 +1,267 @@
+     1	import React, { useState, useEffect } from 'react';
+     2	import { Layers, Plus, Edit2, Trash2, X, Check } from 'lucide-react';
+     3	import { getCategories, createCategory, updateCategory, deleteCategory } from '../services/api';
+     4	
+     5	const CategoriesPage = () => {
+     6	  const [categories, setCategories] = useState<any[]>([]);
+     7	  const [loading, setLoading] = useState(true);
+     8	  
+     9	  const [isModalOpen, setIsModalOpen] = useState(false);
+    10	  const [editingCategory, setEditingCategory] = useState<any>(null);
+    11	  const [formData, setFormData] = useState({
+    12	    name: '',
+    13	    icon: '',
+    14	    sortOrder: 0,
+    15	    active: true,
+    16	    isDiscoverFilter: false,
+    17	    imageUrl: ''
+    18	  });
+    19	
+    20	  useEffect(() => {
+    21	    fetchData();
+    22	  }, []);
+    23	
+    24	  const fetchData = async () => {
+    25	    try {
+    26	      setLoading(true);
+    27	      const res = await getCategories();
+    28	      setCategories(res.data.data || []);
+    29	    } catch (err) {
+    30	      console.error(err);
+    31	    } finally {
+    32	      setLoading(false);
+    33	    }
+    34	  };
+    35	
+    36	  const handleDelete = async (id: number) => {
+    37	    if (!window.confirm('Are you sure you want to delete this category? Articles might be left uncategorized.')) return;
+    38	    try {
+    39	      await deleteCategory(id);
+    40	      fetchData();
+    41	    } catch (err) {
+    42	      console.error('Failed to delete category', err);
+    43	      alert('Failed to delete category');
+    44	    }
+    45	  };
+    46	
+    47	  const handleEdit = (category: any) => {
+    48	    setEditingCategory(category);
+    49	    setFormData({
+    50	      name: category.name,
+    51	      icon: category.icon || '',
+    52	      sortOrder: category.sortOrder || 0,
+    53	      active: category.active ?? true,
+    54	      isDiscoverFilter: category.isDiscoverFilter ?? false,
+    55	      imageUrl: category.imageUrl || ''
+    56	    });
+    57	    setIsModalOpen(true);
+    58	  };
+    59	
+    60	  const handleAdd = () => {
+    61	    setEditingCategory(null);
+    62	    setFormData({
+    63	      name: '',
+    64	      icon: '',
+    65	      sortOrder: categories.length,
+    66	      active: true,
+    67	      isDiscoverFilter: false,
+    68	      imageUrl: ''
+    69	    });
+    70	    setIsModalOpen(true);
+    71	  };
+    72	
+    73	  const handleSubmit = async (e: React.FormEvent) => {
+    74	    e.preventDefault();
+    75	    try {
+    76	      if (editingCategory) {
+    77	        await updateCategory(editingCategory.id, formData);
+    78	      } else {
+    79	        await createCategory(formData);
+    80	      }
+    81	      setIsModalOpen(false);
+    82	      fetchData();
+    83	    } catch (err) {
+    84	      console.error('Failed to save category', err);
+    85	      alert('Failed to save category');
+    86	    }
+    87	  };
+    88	
+    89	  return (
+    90	    <div className="p-6 relative h-full flex flex-col">
+    91	      <div className="flex justify-between items-center mb-6">
+    92	        <h1 className="text-2xl font-bold text-white flex items-center">
+    93	          <Layers className="mr-3 text-purple-400" /> Categories
+    94	        </h1>
+    95	        <button 
+    96	          onClick={handleAdd}
+    97	          className="bg-purple-600 hover:bg-purple-500 text-white px-4 py-2 rounded-lg flex items-center transition-colors"
+    98	        >
+    99	          <Plus size={16} className="mr-2" /> Add Category
+   100	        </button>
+   101	      </div>
+   102	
+   103	      <div className="bg-[#1A1A1A] rounded-xl overflow-hidden border border-[#333] flex-1">
+   104	        {loading ? (
+   105	          <div className="p-6 text-gray-400">Loading categories...</div>
+   106	        ) : (
+   107	          <table className="w-full text-left text-sm text-gray-300">
+   108	            <thead className="bg-[#2A2A2A] text-gray-400">
+   109	              <tr>
+   110	                <th className="px-6 py-4 font-semibold">Order</th>
+   111	                <th className="px-6 py-4 font-semibold">Icon</th>
+   112	                <th className="px-6 py-4 font-semibold">Name</th>
+   113	                <th className="px-6 py-4 font-semibold">Content Stats</th>
+   114	                <th className="px-6 py-4 font-semibold">Status</th>
+   115	                <th className="px-6 py-4 font-semibold text-right">Actions</th>
+   116	              </tr>
+   117	            </thead>
+   118	            <tbody className="divide-y divide-[#333]">
+   119	              {categories.sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0)).map((cat) => (
+   120	                <tr key={cat.id} className="hover:bg-[#222] transition-colors">
+   121	                  <td className="px-6 py-4 font-mono text-gray-500">{cat.sortOrder}</td>
+   122	                  <td className="px-6 py-4 text-xl">{cat.icon || '📁'}</td>
+   123	                  <td className="px-6 py-4 font-medium text-white">{cat.name}</td>
+   124	                  <td className="px-6 py-4">
+   125	                    <div className="flex flex-col gap-1 text-xs text-gray-400">
+   126	                      <span>{cat._count?.articles || 0} Articles</span>
+   127	                      <span>{cat._count?.youtubeVideos || 0} YT Shorts</span>
+   128	                      <span>{cat._count?.sources || 0} Sources</span>
+   129	                    </div>
+   130	                  </td>
+   131	                  <td className="px-6 py-4">
+   132	                    <span className={`px-2 py-1 rounded text-xs ${cat.active ? 'bg-green-900/30 text-green-400' : 'bg-gray-800 text-gray-400'}`}>
+   133	                      {cat.active ? 'ACTIVE' : 'INACTIVE'}
+   134	                    </span>
+   135	                  </td>
+   136	                  <td className="px-6 py-4 text-right">
+   137	                    <div className="flex justify-end gap-2">
+   138	                      <button 
+   139	                        className="text-blue-400 hover:text-blue-300 p-1"
+   140	                        onClick={() => handleEdit(cat)}
+   141	                      >
+   142	                        <Edit2 size={18} />
+   143	                      </button>
+   144	                      <button 
+   145	                        className="text-red-400 hover:text-red-300 p-1"
+   146	                        onClick={() => handleDelete(cat.id)}
+   147	                      >
+   148	                        <Trash2 size={18} />
+   149	                      </button>
+   150	                    </div>
+   151	                  </td>
+   152	                </tr>
+   153	              ))}
+   154	              {categories.length === 0 && (
+   155	                <tr>
+   156	                  <td colSpan={6} className="px-6 py-8 text-center text-gray-500">No categories found. Create one to get started.</td>
+   157	                </tr>
+   158	              )}
+   159	            </tbody>
+   160	          </table>
+   161	        )}
+   162	      </div>
+   163	
+   164	      {/* Add/Edit Modal */}
+   165	      {isModalOpen && (
+   166	        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+   167	          <div className="bg-[#1A1A1A] rounded-xl border border-[#333] w-full max-w-md overflow-hidden">
+   168	            <div className="flex justify-between items-center p-4 border-b border-[#333]">
+   169	              <h2 className="text-lg font-bold text-white">{editingCategory ? 'Edit Category' : 'Add Category'}</h2>
+   170	              <button onClick={() => setIsModalOpen(false)} className="text-gray-400 hover:text-white">
+   171	                <X size={20} />
+   172	              </button>
+   173	            </div>
+   174	            <form onSubmit={handleSubmit} className="p-4">
+   175	              <div className="space-y-4">
+   176	                <div>
+   177	                  <label className="block text-sm text-gray-400 mb-1">Name *</label>
+   178	                  <input 
+   179	                    type="text" 
+   180	                    required
+   181	                    className="w-full bg-[#111] border border-[#333] rounded px-3 py-2 text-white focus:outline-none focus:border-purple-500"
+   182	                    value={formData.name}
+   183	                    onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+   184	                  />
+   185	                </div>
+   186	                <div>
+   187	                  <label className="block text-sm text-gray-400 mb-1">Filter Chip Image URL (Optional)</label>
+   188	                  <input 
+   189	                    type="url" 
+   190	                    placeholder="https://example.com/image.png"
+   191	                    className="w-full bg-[#111] border border-[#333] rounded px-3 py-2 text-white focus:outline-none focus:border-purple-500"
+   192	                    value={formData.imageUrl}
+   193	                    onChange={(e) => setFormData({ ...formData, imageUrl: e.target.value })}
+   194	                  />
+   195	                </div>
+   196	                <div className="grid grid-cols-2 gap-4">
+   197	                  <div>
+   198	                    <label className="block text-sm text-gray-400 mb-1">Icon (Emoji/URL)</label>
+   199	                    <input 
+   200	                      type="text" 
+   201	                      className="w-full bg-[#111] border border-[#333] rounded px-3 py-2 text-white focus:outline-none focus:border-purple-500"
+   202	                      value={formData.icon}
+   203	                      onChange={(e) => setFormData({ ...formData, icon: e.target.value })}
+   204	                    />
+   205	                  </div>
+   206	                  <div>
+   207	                    <label className="block text-sm text-gray-400 mb-1">Status</label>
+   208	                    <label className="flex items-center cursor-pointer mt-2">
+   209	                      <input 
+   210	                        type="checkbox" 
+   211	                        className="sr-only peer"
+   212	                        checked={formData.active}
+   213	                        onChange={(e) => setFormData({ ...formData, active: e.target.checked })}
+   214	                      />
+   215	                      <div className="w-11 h-6 bg-gray-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-500 relative"></div>
+   216	                      <span className="ml-3 text-sm font-medium text-gray-300">Active</span>
+   217	                    </label>
+   218	                  </div>
+   219	                </div>
+   220	                <div className="grid grid-cols-2 gap-4">
+   221	                  <div>
+   222	                    <label className="block text-sm text-gray-400 mb-1">Sort Order</label>
+   223	                    <input 
+   224	                      type="number" 
+   225	                      className="w-full bg-[#111] border border-[#333] rounded px-3 py-2 text-white focus:outline-none focus:border-purple-500"
+   226	                      value={formData.sortOrder}
+   227	                      onChange={(e) => setFormData({ ...formData, sortOrder: parseInt(e.target.value) || 0 })}
+   228	                    />
+   229	                  </div>
+   230	                  <div className="flex flex-col justify-end">
+   231	                    <label className="flex items-center cursor-pointer">
+   232	                      <input 
+   233	                        type="checkbox" 
+   234	                        className="sr-only peer"
+   235	                        checked={formData.isDiscoverFilter}
+   236	                        onChange={(e) => setFormData({ ...formData, isDiscoverFilter: e.target.checked })}
+   237	                      />
+   238	                      <div className="w-11 h-6 bg-gray-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-500 relative"></div>
+   239	                      <span className="ml-3 text-sm font-medium text-gray-300">Is Discover Filter?</span>
+   240	                    </label>
+   241	                  </div>
+   242	                </div>
+   243	              </div>
+   244	              <div className="mt-6 flex justify-end gap-2">
+   245	                <button 
+   246	                  type="button" 
+   247	                  className="px-4 py-2 text-gray-400 hover:text-white"
+   248	                  onClick={() => setIsModalOpen(false)}
+   249	                >
+   250	                  Cancel
+   251	                </button>
+   252	                <button 
+   253	                  type="submit" 
+   254	                  className="px-4 py-2 bg-purple-600 hover:bg-purple-500 text-white rounded flex items-center"
+   255	                >
+   256	                  <Check size={16} className="mr-2" /> Save Category
+   257	                </button>
+   258	              </div>
+   259	            </form>
+   260	          </div>
+   261	        </div>
+   262	      )}
+   263	    </div>
+   264	  );
+   265	};
+   266	
+   267	export default CategoriesPage;

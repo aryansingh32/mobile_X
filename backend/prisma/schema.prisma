@@ -1,0 +1,625 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id              Int      @id @default(autoincrement())
+  googleId        String?  @unique
+  email           String   @unique
+  name            String
+  role            String   @default("USER") // USER, SUPER_ADMIN, FINANCE_ADMIN, FRAUD_ANALYST
+  trustScore      Int      @default(50) // 0-100
+  riskScore       Int      @default(0)  // 0-100
+  shadowBanned    Boolean  @default(false)
+  banned          Boolean  @default(false)
+  
+  xp              Int      @default(0)
+  level           Int      @default(1)
+  streak          Int      @default(0)
+  lastLogin       DateTime @default(now())
+  createdAt       DateTime @default(now())
+
+  country           String?
+  acquisitionSource String?
+  lastActiveAt      DateTime @default(now())
+  currentScreen     String?
+
+  referralCode    String?  @unique
+  fcmToken        String?
+
+  devices         DeviceFingerprint[]
+  ledgerEntries   CoinLedger[]
+  withdrawals     Withdrawal[]
+  fraudLogs       FraudIncident[]
+  userMissions    UserMissions[]
+  userBadges      UserBadges[]
+  shortsSessions  ShortsSessions[]
+  referrals       Referral[]       @relation("ReferrerRelation")
+  referredBy      Referral?        @relation("ReferredRelation")
+  suggestions     RewardSuggestion[]
+  notifications   Notification[]
+  abAllocations   ABTestAllocation[]
+  dailyStats      DailyUserStats[]
+
+  lastDailyBonus    DateTime?
+  streakFreezes     Int       @default(0)
+  totalCoinsEarned  Int       @default(0)
+  activityEvents    UserActivityEvent[]
+  rouletteSpinHistory RouletteSpinHistory[]
+
+  // Lifetime Telemetry Metrics
+  lifetimeScreentimeMin   Int @default(0)
+  lifetimeNewsReads       Int @default(0)
+  lifetimeAdsWatched      Int @default(0)
+  lifetimeShortsWatched   Int @default(0)
+  lifetimeGamesPlayed     Int @default(0)
+  lifetimeOfferwallTasks  Int @default(0)
+}
+
+model DeviceFingerprint {
+  id              Int      @id @default(autoincrement())
+  userId          Int
+  user            User     @relation(fields: [userId], references: [id])
+  deviceIdHash    String
+  osVersion       String
+  isRooted        Boolean  @default(false)
+  isEmulator      Boolean  @default(false)
+  lastIpAddress   String
+  timezone        String
+  trustScore      Int      @default(100)
+
+  // One row per (user, device) pair — NOT a global unique on deviceIdHash
+  // alone. The whole point of this table is to catch the same physical
+  // device being used by many different accounts (device farming); a
+  // globally-unique deviceIdHash would collapse every user onto a single
+  // row per device and make that detection impossible.
+  @@unique([userId, deviceIdHash])
+  @@index([deviceIdHash])
+}
+
+model CoinLedger {
+  id              Int      @id @default(autoincrement())
+  userId          Int
+  user            User     @relation(fields: [userId], references: [id])
+  amount          Int      // Positive for credit, negative for debit
+  source          String   // e.g., 'OFFERWALL', 'WITHDRAWAL', 'SHORT_WATCH'
+  idempotencyKey  String   @unique
+  sessionId       String
+  deviceId        String?
+  ipHash          String
+  timestamp       DateTime @default(now())
+
+  @@index([userId, timestamp])
+}
+
+model Withdrawal {
+  id              Int       @id @default(autoincrement())
+  userId          Int
+  user            User      @relation(fields: [userId], references: [id])
+  amountCoins     Int
+  amountInr       Float
+  status          String    @default("PENDING") // PENDING, AUTO_APPROVED, MANUAL_REVIEW, FRAUD_HOLD, REJECTED, APPROVED, SHIPPED, DELIVERED
+  riskScoreAtTime Int       @default(0)
+  payoutMethod    String
+  destinationId   String
+  catalogItemId   Int?
+  catalogCode     CatalogCode?
+  requestedAt     DateTime  @default(now())
+  processedAt     DateTime?
+  createdAt       DateTime  @default(now())
+  
+  // Physical item fields
+  size            String?
+  color           String?
+  deliveryAddress String?
+  mobileNumber    String?
+  
+  // Tracking
+  trackingId      String?
+  trackingStatus  String?
+}
+
+model FraudIncident {
+  id          Int      @id @default(autoincrement())
+  userId      Int
+  user        User     @relation(fields: [userId], references: [id])
+  reason      String   // e.g., "FAST_CLICKS", "MULTIPLE_ACCOUNTS", "VPN_DETECTED"
+  severity    String   // "LOW", "MEDIUM", "HIGH", "CRITICAL"
+  metadata    String?  // JSON stringified context
+  resolved    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+}
+
+model Missions {
+  id          Int      @id @default(autoincrement())
+  title       String
+  description String
+  targetCount Int
+  rewardXp    Int
+  rewardCoins Int
+  type        String   // DAILY, ONETIME
+
+  isActive    Boolean   @default(true)
+  activeFrom  DateTime?
+  activeTo    DateTime?
+  iconEmoji   String    @default("🎯")
+  difficulty  String    @default("EASY") // EASY, MEDIUM, HARD
+  tags        String[]  @default([])
+  metricType  String    @default("CUSTOM") // CUSTOM, SCREENTIME_MIN, NEWS_READ, ADS_WATCHED, SHORTS_WATCHED, GAMES_PLAYED, REFERRALS, OFFERWALL
+
+  userMissions UserMissions[]
+}
+
+model UserMissions {
+  id          Int      @id @default(autoincrement())
+  userId      Int
+  user        User     @relation(fields: [userId], references: [id])
+  missionId   Int
+  mission     Missions @relation(fields: [missionId], references: [id])
+  progress    Int      @default(0)
+  completedAt DateTime?
+}
+
+model Badges {
+  id             Int      @id @default(autoincrement())
+  name           String
+  description    String
+  conditionType  String   // e.g., LEVEL, STREAK, COINS
+  conditionValue Int
+  imageUrl       String?
+
+  userBadges UserBadges[]
+}
+
+model UserBadges {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  user      User     @relation(fields: [userId], references: [id])
+  badgeId   Int
+  badge     Badges   @relation(fields: [badgeId], references: [id])
+  earnedAt  DateTime @default(now())
+}
+
+model ShortsSessions {
+  id           Int      @id @default(autoincrement())
+  userId       Int
+  user         User     @relation(fields: [userId], references: [id])
+  videoId      String
+  watchSeconds Int
+  coinsEarned  Int
+  timestamp    DateTime @default(now())
+}
+
+// YouTube video pool — admin can upload lists of video IDs
+model YoutubeVideoPool {
+  id              Int       @id @default(autoincrement())
+  videoId         String    @unique
+  title           String?
+  channelTitle    String?
+  durationSeconds Int?
+  source          String    @default("MANUAL") // MANUAL, SEARCH
+  sourceQuery     String?
+  categoryId      Int?
+  category        Category? @relation(fields: [categoryId], references: [id])
+  addedAt         DateTime  @default(now())
+  active          Boolean   @default(true)
+  isTrending      Boolean   @default(false)
+
+  @@index([categoryId])
+  @@index([addedAt])
+}
+
+// RSS feed sources — admin can add/remove/toggle
+model RssSource {
+  id              Int            @id @default(autoincrement())
+  name            String
+  url             String         @unique
+  categoryId      Int?
+  category        Category?      @relation(fields: [categoryId], references: [id])
+  active          Boolean        @default(true)
+  isDiscoverFilter Boolean       @default(false)
+  imageUrl        String?
+  sortOrder       Int            @default(0)
+  priority        String         @default("NORMAL") // HIGH, NORMAL, LOW
+  refreshInterval Int            @default(300)       // seconds (5 min default)
+  language        String         @default("en")
+  region          String         @default("Global")
+  lastSyncAt      DateTime?
+  lastSyncStatus  String?                            // SUCCESS, FAILED, PARTIAL
+  lastError       String?
+  articleCount    Int            @default(0)
+  addedAt         DateTime       @default(now())
+  updatedAt       DateTime       @default(now()) @updatedAt
+  articles        NewsArticle[]
+  syncLogs        FeedSyncLog[]
+}
+
+// Stored articles from RSS ingestion
+model NewsArticle {
+  id           Int       @id @default(autoincrement())
+  externalId   String    @unique       // MD5 hash of article URL
+  title        String
+  description  String?
+  imageUrl     String?
+  sourceUrl    String                  // Original article link
+  sourceName   String                  // Feed title
+  sourceId     Int
+  source       RssSource @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  categoryId   Int?
+  category     Category? @relation(fields: [categoryId], references: [id])
+  publishedAt  DateTime
+  fetchedAt    DateTime  @default(now())
+  isFeatured   Boolean   @default(false)
+  isHidden     Boolean   @default(false)
+  isPinned     Boolean   @default(false)
+  viewCount    Int       @default(0)
+
+  @@index([publishedAt])
+  @@index([sourceId])
+  @@index([categoryId])
+  @@index([isHidden])
+  @@index([isFeatured])
+}
+
+// Categories for Discover tabs
+model Category {
+  id        Int            @id @default(autoincrement())
+  name      String         @unique
+  icon      String         @default("📰")
+  imageUrl  String?
+  sortOrder Int            @default(0)
+  active    Boolean        @default(true)
+  isDiscoverFilter Boolean @default(false)
+  sources   RssSource[]
+  articles  NewsArticle[]
+  youtubeVideos YoutubeVideoPool[]
+  youtubeImportLogs YoutubeImportLog[]
+}
+
+model YoutubeImportLog {
+  id                Int       @id @default(autoincrement())
+  query             String
+  categoryId        Int?
+  category          Category? @relation(fields: [categoryId], references: [id])
+  requestedCount    Int
+  fetchedCount      Int       @default(0)
+  addedCount        Int       @default(0)
+  duplicatesSkipped Int       @default(0)
+  invalidSkipped    Int       @default(0)
+  status            String    // SUCCESS, PARTIAL, FAILED
+  error             String?
+  startedAt         DateTime  @default(now())
+  completedAt       DateTime?
+  durationMs        Int       @default(0)
+
+  @@index([startedAt])
+  @@index([categoryId])
+}
+
+// Feed sync logs for debugging
+model FeedSyncLog {
+  id              Int       @id @default(autoincrement())
+  sourceId        Int
+  source          RssSource @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  status          String                // SUCCESS, FAILED, PARTIAL
+  articlesFetched Int       @default(0)
+  articlesNew     Int       @default(0)
+  imagesFetched   Int       @default(0)
+  imagesFailed    Int       @default(0)
+  error           String?
+  durationMs      Int       @default(0)
+  startedAt       DateTime  @default(now())
+  completedAt     DateTime?
+
+  @@index([sourceId])
+  @@index([startedAt])
+}
+
+// Admin-controlled app config (key-value store)
+model AppConfig {
+  key       String   @id
+  value     String
+  updatedAt DateTime @updatedAt
+}
+
+// Referral system
+model Referral {
+  id            Int      @id @default(autoincrement())
+  referrerId    Int
+  referrer      User     @relation("ReferrerRelation", fields: [referrerId], references: [id])
+  referredId    Int      @unique
+  referred      User     @relation("ReferredRelation", fields: [referredId], references: [id])
+  referralCode  String
+  tier          Int      @default(1)   // 1, 2, or 3 (escalates with activity)
+  createdAt     DateTime @default(now())
+}
+
+// Withdrawal catalog items (managed by admin)
+model CatalogItem {
+  id          Int      @id @default(autoincrement())
+  name        String
+  description String?
+  imageUrl    String?
+  type        String   // UPI, VOUCHER, PHYSICAL, CUSTOM
+  coinCost    Int
+  inrValue    Float
+  active      Boolean  @default(true)
+  stock       Int      @default(-1)   // -1 = unlimited
+  createdAt   DateTime @default(now())
+  codes       CatalogCode[]
+}
+
+model CatalogCode {
+  id            Int       @id @default(autoincrement())
+  catalogItemId Int
+  catalogItem   CatalogItem @relation(fields: [catalogItemId], references: [id], onDelete: Cascade)
+  code          String
+  serialNumber  String?
+  status        String    @default("AVAILABLE") // AVAILABLE, RESERVED, ISSUED, VOID
+  note          String?
+  withdrawalId  Int?      @unique
+  withdrawal    Withdrawal? @relation(fields: [withdrawalId], references: [id])
+  createdAt     DateTime  @default(now())
+  issuedAt      DateTime?
+
+  @@unique([catalogItemId, code])
+  @@index([catalogItemId, status])
+}
+
+// User reward suggestion (for wallet feedback)
+model RewardSuggestion {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  user      User     @relation(fields: [userId], references: [id])
+  message   String
+  upvotes   Int      @default(0)
+  status    String   @default("PENDING")  // PENDING, REVIEWED, ADDED
+  createdAt DateTime @default(now())
+}
+
+// Notification log
+model Notification {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  user      User     @relation(fields: [userId], references: [id])
+  title     String
+  body      String
+  type      String   // STREAK, REWARD, MISSION, REFERRAL, SYSTEM
+  read      Boolean  @default(false)
+  sentAt    DateTime @default(now())
+}
+
+// Security Operations Center Audit Logs
+model AuditLog {
+  id        Int      @id @default(autoincrement())
+  adminId   Int?
+  action    String
+  details   String
+  createdAt DateTime @default(now())
+}
+
+// A/B Testing System
+model ABTest {
+  id          Int      @id @default(autoincrement())
+  name        String   @unique
+  description String?
+  isActive    Boolean  @default(true)
+  variants    String   // JSON string of variants, e.g. ["A", "B"]
+  allocations ABTestAllocation[]
+}
+
+model ABTestAllocation {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  testId    Int
+  variant   String
+  user      User     @relation(fields: [userId], references: [id])
+  test      ABTest   @relation(fields: [testId], references: [id])
+  
+  @@unique([userId, testId])
+}
+
+model DailyUserStats {
+  id            Int      @id @default(autoincrement())
+  userId        Int
+  user          User     @relation(fields: [userId], references: [id])
+  date          DateTime
+  coinsEarned   Int      @default(0)
+  adsWatched    Int      @default(0)
+  sessionCount  Int      @default(0)
+
+  @@unique([userId, date])
+  @@index([date])
+}
+
+model UserActivityEvent {
+  id               Int      @id @default(autoincrement())
+  userId           Int
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  eventType        String   @default("HEARTBEAT")
+  currentScreen    String?
+  sessionDurationSec Int    @default(0)
+  appVersion       String?
+  appVersionNumber String?
+  platform         String?
+  deviceType       String?
+  deviceId         String?
+  timezone         String?
+  traceId          String?
+  ipAddress        String?
+  metadata         Json?
+  createdAt        DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([eventType, createdAt])
+}
+
+// ─────────────────────────────────────────────────────────
+// AD PLACEMENT ENGINE — WHERE and HOW OFTEN ads appear
+// ─────────────────────────────────────────────────────────
+
+model AdPlacement {
+  id              Int      @id @default(autoincrement())
+  key             String   @unique
+  screen          String   // DISCOVER, SHORTS, HOME, WALLET, GAMES, ARTICLE_DETAIL, GLOBAL
+  adFormat        String   // REWARDED, REWARDED_INTERSTITIAL, BANNER, NATIVE, INTERSTITIAL
+  enabled         Boolean  @default(true)
+
+  intervalMin     Int      @default(3)
+  intervalMax     Int      @default(6)
+  cooldownSeconds Int      @default(45)
+
+  maxPerSession      Int   @default(8)
+  skipFirstNActions  Int   @default(2)
+
+  adUnitKey       String   // maps to AD_UNITS object key
+  titleKey        String?
+  descriptionKey  String?
+  ctaLabelKey     String?
+
+  updatedAt       DateTime @updatedAt
+  updatedBy       Int?
+
+  @@index([screen])
+}
+
+// ─────────────────────────────────────────────────────────
+// AD REWARD RULES — HOW MUCH each ad format pays
+// ─────────────────────────────────────────────────────────
+
+model AdRewardRule {
+  id                Int      @id @default(autoincrement())
+  adType            String   @unique // REWARDED, REWARDED_INTERSTITIAL, REWARDED_DISCOVER
+  coinsAwarded      Int      @default(50)
+  dailyCapForType   Int      @default(10)
+  cooldownSeconds   Int      @default(45)
+  enabled           Boolean  @default(true)
+  requiresFullWatch Boolean  @default(true)
+  updatedAt         DateTime @updatedAt
+  updatedBy         Int?
+}
+
+// ─────────────────────────────────────────────────────────
+// DAILY CAP POLICIES — global + tiered caps
+// ─────────────────────────────────────────────────────────
+
+model DailyCapPolicy {
+  id                 Int      @id @default(autoincrement())
+  tier               String   @unique // DEFAULT, NEW_USER, HIGH_TRUST, LOW_TRUST
+  maxAdsPerDay       Int      @default(20)
+  maxCoinsPerDay     Int      @default(1000)
+  minCooldownSeconds Int      @default(45)
+  updatedAt          DateTime @updatedAt
+}
+
+// ─────────────────────────────────────────────────────────
+// CONTENT MANAGEMENT SYSTEM — every UI string, admin-editable
+// ─────────────────────────────────────────────────────────
+
+model ContentString {
+  id          Int      @id @default(autoincrement())
+  key         String   @unique
+  screen      String   // HOME, AUTH, SPLASH, DISCOVER, SHORTS, WALLET, EARN, GAMES, GLOBAL
+  value       String   @db.Text
+  description String?
+  variant     String?
+  locale      String   @default("en")
+  updatedAt   DateTime @updatedAt
+  updatedBy   Int?
+
+  @@unique([key, locale, variant])
+  @@index([screen])
+}
+
+// ─────────────────────────────────────────────────────────
+// FEATURE FLAGS — haptics, animations, kill switches
+// ─────────────────────────────────────────────────────────
+
+model FeatureFlag {
+  id             Int      @id @default(autoincrement())
+  key            String   @unique
+  category       String   // HAPTICS, ANIMATION, EXPERIMENTAL, KILL_SWITCH
+  enabled        Boolean  @default(true)
+  rolloutPercent Int      @default(100)
+  description    String?
+  updatedAt      DateTime @updatedAt
+  updatedBy      Int?
+}
+
+// ─────────────────────────────────────────────────────────
+// SCREEN LAYOUT — section ordering and visibility
+// ─────────────────────────────────────────────────────────
+
+model ScreenSection {
+  id            Int      @id @default(autoincrement())
+  screen        String   // HOME, EARN, WALLET
+  sectionKey    String
+  enabled       Boolean  @default(true)
+  sortOrder     Int      @default(0)
+  layoutVariant String   @default("default")
+  updatedAt     DateTime @updatedAt
+
+  @@unique([screen, sectionKey])
+  @@index([screen])
+}
+
+// ─────────────────────────────────────────────────────────
+// AD ANALYTICS EVENTS — full ad lifecycle tracking
+// ─────────────────────────────────────────────────────────
+
+model AdEvent {
+  id           Int      @id @default(autoincrement())
+  userId       Int
+  placementKey String
+  adType       String   // REWARDED, REWARDED_INTERSTITIAL, REWARDED_DISCOVER, etc.
+  eventType    String   // REQUESTED, LOADED, FAILED_TO_LOAD, SHOWN, CLICKED, EARNED_REWARD, DISMISSED, ABANDONED
+  screen       String
+  sessionId    String
+  errorCode    String?
+  latencyMs    Int?
+  timestamp    DateTime @default(now())
+
+  @@index([userId, timestamp])
+  @@index([placementKey, eventType, timestamp])
+  @@index([adType, eventType])
+}
+
+// ─────────────────────────────────────────────────────────
+// ROULETTE WHEEL
+// ─────────────────────────────────────────────────────────
+
+model RouletteItem {
+  id          Int      @id @default(autoincrement())
+  label       String
+  color       String
+  rewardCoins Int      @default(0) // 0 means no reward
+  probability Float    @default(0) // 0 to 100
+  sizePortion Float    @default(1) // visual size relative to others
+  popupType   String   @default("WINNING") // WINNING, CONGRATULATION, BETTER_LUCK
+  imageUrl    String?
+  isActive    Boolean  @default(true)
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  historyLogs RouletteSpinHistory[]
+}
+
+model RouletteSpinHistory {
+  id             Int      @id @default(autoincrement())
+  userId         Int
+  user           User     @relation(fields: [userId], references: [id])
+  rouletteItemId Int
+  rouletteItem   RouletteItem @relation(fields: [rouletteItemId], references: [id])
+  coinsAwarded   Int
+  spinType       String   @default("FREE") // FREE, AD_REWARD
+  timestamp      DateTime @default(now())
+  
+  @@index([userId, timestamp])
+  @@index([rouletteItemId, timestamp])
+}

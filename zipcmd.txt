@@ -1,0 +1,8 @@
+# Backend (Node.js/Prisma)
+zip -r backend-source.zip backend -x "*/node_modules/*" "*/.git/*" "*/dist/*" "*/build/*" "*/.claude/*" "*/.agent/*" "*/.codex/*" "*.log" "*/.env*" "*.DS_Store" "*/coverage/*"
+
+# Admin Panel (Next.js/React)
+zip -r admin-panel-source.zip admin-panel -x "*/node_modules/*" "*/.git/*" "*/.next/*" "*/dist/*" "*/build/*" "*/.claude/*" "*/.agent/*" "*/.codex/*" "*.log" "*/.env*" "*.DS_Store" "*/coverage/*"
+
+# Frontend (Expo/React Native) - assuming path is modified2/reel-flow
+zip -r frontend-source.zip modified2/reel-flow -x "*/node_modules/*" "*/.git/*" "*/.expo/*" "*/android/*" "*/ios/*" "*/dist/*" "*/build/*" "*/.claude/*" "*/.agent/*" "*/.codex/*" "*.log" "*/.env*" "*.DS_Store" "*.aab" "*.apk" "*/coverage/*"

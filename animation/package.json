@@ -1,0 +1,6 @@
+{
+  "dependencies": {
+    "libwebp-static": "^1.0.5",
+    "puppeteer": "^24.43.1"
+  }
+}

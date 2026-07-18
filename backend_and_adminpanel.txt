@@ -1,0 +1,455 @@
+Full Backend & Admin Panel Analysis — mobile_X
+1. Backend Architecture
+Framework: Express.js + TypeScript (Node.js), compiled with tsc.
+Database: PostgreSQL via Prisma ORM (schema.prisma).
+Cache / Queues: Redis (via ioredis / BullMQ). The queueService starts a BullMQ worker on import.
+Entry point: backend/src/index.ts
+Port: 5000 (default), 0.0.0.0 bind.
+
+Middleware stack (in order):
+
+express.json({ limit: '10kb' }) — payload size guard
+cors — CORS_ALLOWED_ORIGINS env list
+helmet — HTTP security headers
+hpp — HTTP Parameter Pollution protection
+globalLimiter — Express-rate-limit (securityMiddleware)
+morgan — HTTP logging piped to Winston logger
+fraudDetectionMiddleware — Redis-based multi-account + rate detection
+promBundle (express-prom-bundle) — Prometheus metrics on every route
+News ingestion: Cron job via node-cron, runs every 5 minutes (*/5 * * * *), calls runIngestionNow().
+
+2. All API Endpoints (complete list)
+Auth — /api/auth
+(file: routes/auth.ts)
+
+Users — /api/users
+GET /profile
+POST /daily-bonus
+POST /streak/sync
+POST /activity
+PUT /fcm-token
+GET /missions/daily
+GET /notifications
+PUT /notifications/:notificationId/read
+DELETE /account
+News — /api/news (cached 300s)
+GET / — paginated news feed
+GET /filters — discover categories + sources
+GET /:id — single article
+Shorts — /api/shorts (cached 120s)
+GET / — get shorts list (pool-first, falls back to YouTube API)
+POST /watch — SHORT VIDEO TRACKING ENDPOINT (authenticated, reports watch time, Redis dedup with 30s cooldown per video/user)
+Admin — /api/admin (all require authenticate + authorizeAdmin)
+Core:
+
+GET /me
+GET /users (fraudAnalyst)
+POST /users/:userId/balance (financeAdmin)
+POST /users/:userId/metrics (fraudAnalyst)
+GET /withdrawals (financeAdmin)
+POST /withdrawals/:withdrawalId/process (financeAdmin)
+GET /fraud (fraudAnalyst)
+POST /fraud/:logId/resolve (fraudAnalyst)
+GET /logs (superAdmin)
+Advanced:
+
+GET /env, POST /env (superAdmin)
+GET /audit (superAdmin)
+GET /live-users (fraudAnalyst)
+GET /user-intelligence/:userId (fraudAnalyst)
+GET /analytics/dashboard (financeAdmin)
+GET /analytics/retention (superAdmin)
+GET /ab-tests, POST /ab-tests, PUT /ab-tests/:testId (superAdmin)
+POST /notifications/send (superAdmin)
+Missions:
+
+GET /missions, POST /missions, PUT /missions/:missionId, DELETE /missions/:missionId (superAdmin)
+Referrals:
+
+GET /referrals (financeAdmin)
+News system:
+
+GET /news/dashboard, POST /news/sync, POST /news/sync/:sourceId
+GET /news/articles, PUT /news/articles/:id, DELETE /news/articles/:id
+GET /news/sync-logs
+GET /categories, POST /categories, PUT /categories/:id, DELETE /categories/:id
+GET /rss-sources, POST /rss-sources, PUT /rss-sources/:id, DELETE /rss-sources/:id
+GET /youtube-pool, POST /youtube-pool/upload, POST /youtube-pool/search-import, GET /youtube-pool/import-logs, DELETE /youtube-pool/:id
+App Config (Economy Control):
+
+GET /config (superAdmin)
+PUT /config/:key (superAdmin)
+Catalog:
+
+GET /catalog, POST /catalog, PUT /catalog/:id, DELETE /catalog/:id
+GET /catalog/:id/codes, POST /catalog/:id/codes, PUT /catalog/codes/:codeId, DELETE /catalog/codes/:codeId
+Suggestions:
+
+GET /suggestions, PUT /suggestions/:id
+Ad Placements (Remote Config Engine):
+
+GET /ad-placements
+POST /ad-placements/create (superAdmin)
+PUT /ad-placements/:id (superAdmin)
+DELETE /ad-placements/:id (superAdmin)
+Ad Reward Rules:
+
+GET /ad-reward-rules (superAdmin)
+PUT /ad-reward-rules/:adType (superAdmin)
+Daily Cap Policies:
+
+GET /daily-cap-policies (superAdmin)
+PUT /daily-cap-policies/:tier (superAdmin)
+Content Strings (CMS):
+
+GET /content-strings, PUT /content-strings/:key, POST /content-strings/bulk (superAdmin)
+Feature Flags:
+
+GET /feature-flags, PUT /feature-flags/:key (superAdmin)
+Screen Sections:
+
+GET /screen-sections/:screen, PUT /screen-sections/:screen (superAdmin)
+Ad Analytics:
+
+GET /ad-analytics/funnel
+GET /ad-analytics/fill-rate
+GET /ad-analytics/revenue-estimate
+Roulette:
+
+GET /roulette, POST /roulette, PUT /roulette/:id, DELETE /roulette/:id, GET /roulette/analytics (superAdmin)
+Offerwall — /api/webhooks/offerwall
+GET /tasks (authenticated)
+POST /complete (authenticated, demo mode)
+POST /postback (HMAC signature verification — real webhook from offerwall provider)
+Wallet — /api/wallet
+GET /catalog
+POST /withdraw (authenticated + withdrawalLimiter)
+GET /history (authenticated)
+POST /suggest, GET /suggest (authenticated)
+Referral — /api/referral
+GET /code, GET /stats, POST /apply
+Rewards — /api/rewards
+POST /shorts — claim short watch reward
+POST /ad — CLAIM AD REWARD (authenticated) — the main coin-granting endpoint for ads
+GET /roulette-config (authenticated)
+POST /roulette-spin (authenticated)
+Config — /api/config
+GET / — public config (safe values only, no auth)
+GET /remote — full consolidated remote config (authenticated, version-diffed)
+POST /ad-event — ad lifecycle event reporting (authenticated)
+Telemetry — /api/telemetry
+POST /track — THE TELEMETRY ENDPOINT (authenticated)
+Health
+GET /api/health
+3. Telemetry Endpoint — The One Getting 500 Errors
+Endpoint: POST /api/telemetry/track
+File: backend/src/routes/telemetry.ts
+
+What it does:
+
+Accepts { eventType, count } in the body.
+Updates lifetime user stats (e.g. lifetimeScreentimeMin, lifetimeNewsReads, lifetimeAdsWatched, etc.) in the User model.
+Finds all active Missions with metricType === eventType.
+For each mission, upserts UserMissions progress.
+If mission completes (progress >= targetCount), runs a DB transaction:
+Marks UserMissions.completedAt
+Increments user.xp and user.totalCoinsEarned
+Creates a CoinLedger entry with source: MISSION_COMPLETED_${mission.id}
+Why it 500s:
+The error is caught and returns 500 + "Failed to process telemetry". The likely cause is the metricType field on Missions — the telemetry handler queries prisma.missions.findMany({ where: { metricType: eventType } }). If the Missions table doesn't exist yet (seed not run), or if any mission has a missing/null metricType, Prisma will throw. Also: if lifetimeReferrals is sent as eventType, the code explicitly skips it (// We didn't add lifetimeReferrals to the Prisma schema, skip) but still tries to update user if other keys match — and if Object.keys(userUpdate).length > 0 the DB update runs, which should be fine. Most likely cause: migrations not run or seed-config not run, causing Prisma errors when querying the Missions table. The catch block swallows the actual error to console but returns 500.
+
+4. Admin Panel Ad Configuration Fields (what admins can control)
+Economy Control (/config page, AppConfig table):
+Key	Description
+ad_rewarded_coins	Coins for watching full rewarded video ad
+ad_rewarded_interstitial_coins	Coins for rewarded interstitial ad
+ad_rewarded_discover_coins	Coins for rewarded ad in Discover feed
+short_watch_reward_coins	Coins per Short (currently 0, coins come from ads)
+daily_ad_cap	Maximum rewarded ads credited per user per day
+ad_cooldown_seconds	Minimum seconds between ad reward claims
+admob_android_app_id	Android AdMob App ID
+admob_android_app_open_ad_unit_id	App open ad unit
+admob_android_rewarded_card_ad_unit_id	Rewarded ad unit for card ads
+admob_android_rewarded_discover_ad_unit_id	Rewarded unit for Discover feed
+admob_android_rewarded_interstitial_card_ad_unit_id	Rewarded interstitial unit
+admob_android_game_completion_ad_unit_id	Interstitial after game completion
+admob_android_interstitial_nav_ad_unit_id	Nav transition interstitial
+admob_android_wallet_interstitial_ad_unit_id	Wallet switch interstitial
+admob_android_native_ad_unit_id	Native feed ad unit
+admob_android_news_banner_ad_unit_id	Banner on news/article screens
+coin_to_inr_rate	Exchange rate (coins → INR)
+post_ad_lockout_ms	Interaction lockout after ad closes
+offerwall_demo_mode	Enable demo offerwall tasks
+ad_farming_window_minutes	Rolling window for abandonment detection
+ad_farming_min_sample	Minimum sessions before farming penalty
+ad_farming_abandon_threshold	Abandonment ratio threshold (default 0.6)
+ad_farming_penalty_base_seconds	Base penalty time (default 300s)
+ad_farming_penalty_max_seconds	Max penalty time (default 1800s)
+ad_farming_fraud_sample	Sessions before fraud flag
+ad_farming_fraud_threshold	Ratio for HIGH severity fraud flag
+Ad Placements (/ad-placements page, AdPlacement model):
+Per placement, admins control:
+
+enabled — toggle on/off
+intervalMin / intervalMax — how many user actions between ads
+cooldownSeconds — seconds between ads for this placement
+maxPerSession — max ads per user session for this placement
+skipFirstNActions — skip ads for first N actions (new user grace)
+adUnitKey — which AdMob unit to use (maps to AD_UNIT_KEY_LOOKUP)
+screen — DISCOVER, SHORTS, HOME, WALLET, GAMES, GLOBAL, ARTICLE_DETAIL
+adFormat — REWARDED, REWARDED_INTERSTITIAL, BANNER, NATIVE, INTERSTITIAL
+titleKey, descriptionKey, ctaLabelKey — CMS string references
+Ad Reward Rules (/ad-rules page, AdRewardRule model):
+Per ad type (REWARDED, REWARDED_INTERSTITIAL, REWARDED_DISCOVER, etc.):
+
+coinsAwarded — payout amount
+dailyCapForType — max times per day per user for this type
+cooldownSeconds — type-specific cooldown
+enabled — kill switch per ad type
+requiresFullWatch — whether full watch required for reward
+Daily Cap Policies (/cap-policies page, DailyCapPolicy model):
+Per tier (DEFAULT, NEW_USER, HIGH_TRUST, LOW_TRUST):
+
+maxAdsPerDay — global daily ad count cap
+maxCoinsPerDay — absolute hard coin earning cap per day
+minCooldownSeconds — global minimum between any two ad rewards
+5. Coin System — How Coins Are Granted in Backend
+All coin grants go through addLedgerEntry() in services/ledgerService.ts:
+
+Creates a CoinLedger row with amount, source, idempotencyKey, sessionId, deviceId, ipHash
+Idempotency key format: ${source}:${userId}:${sessionId} — prevents double-claim
+Shadow banned users get source: SHADOW_${source} (coins recorded but flagged)
+Balance is always computed as SUM(amount) on CoinLedger (ledger pattern, no balance column)
+Coin sources (all via CoinLedger.source):
+
+Source	Granted by	Endpoint
+AD_REWARDED	claimAdReward (adType=REWARDED)	POST /api/rewards/ad
+AD_REWARDED_INTERSTITIAL	claimAdReward (adType=REWARDED_INTERSTITIAL)	same
+AD_REWARDED_DISCOVER	claimAdReward (adType=REWARDED_DISCOVER)	same
+SHORT_WATCH	claimShortReward	POST /api/rewards/shorts
+ROULETTE_SPIN	claimRouletteSpin	POST /api/rewards/roulette-spin
+ROULETTE_AD	roulette ad watch	(ROULETTE_AD source in ledger)
+DAILY_BONUS	claimDailyBonus	POST /api/users/daily-bonus
+MISSION_COMPLETED_${id}	telemetry mission completion	POST /api/telemetry/track
+OFFERWALL_DEMO	demo task complete	POST /api/webhooks/offerwall/complete
+OFFERWALL_POSTBACK	real offerwall webhook	POST /api/webhooks/offerwall/postback
+ADMIN_ADJUSTMENT	admin manual	POST /api/admin/users/:userId/balance
+WITHDRAWAL_REFUND	rejected withdrawal refund	POST /api/admin/withdrawals/:id/process
+REFERRAL_TIER_1_BONUS / TIER_2 / TIER_3	referrer bonus on withdrawal approval	same
+WITHDRAWAL (negative)	withdrawal debit	wallet controller
+Ad reward flow (claimAdReward):
+
+Look up AdRewardRule by adType
+Look up DailyCapPolicy for tier DEFAULT
+Enforce global daily ad count (globalAdCount >= maxAdsPerDay → 429)
+Enforce per-type daily cap (typeAdCount >= dailyCapForType → 429)
+Enforce global daily coin cap (earnedToday + coinsAwarded > maxCoinsPerDay → 429)
+Enforce global cooldown (time since last any-type ad < minCooldownSeconds → 429 + FRAUD log)
+Enforce per-type cooldown (time since last same-type ad < cooldownSeconds → 429 + FRAUD log)
+Check device fingerprint for isRooted or isEmulator → 403 + FRAUD log
+Call addLedgerEntry() with idempotency on adSessionId
+Award XP via addExp() using xp_per_coin_ratio config
+Increment user.totalCoinsEarned
+6. Content Filtering Logic (Why Articles Without Images Are Removed)
+The ingestion pipeline does NOT filter out articles without images at ingest time.
+In newsIngestionService.ts, the image fetch logic:
+
+First checks RSS media:content field
+Then checks content:encoded for <img> tags
+Falls back to scraping the article URL for og:image or twitter:image via cheerio (5s timeout)
+If no image found, imageUrl = null — article is still saved with imageUrl: null
+However, the frontend likely filters articles without images. Looking at rssService.ts (fetchNewsFromDb), the query does NOT filter by imageUrl IS NOT NULL. So all articles including imageless ones are returned. The filtering must be happening in the frontend display layer (not shown here), or the frontend explicitly drops articles where imageUrl is null.
+
+The FeedSyncLog tracks imagesFailed and imagesFetched counts — these feed into the admin "PARTIAL" sync status when some images couldn't be fetched.
+
+7. Short Video Tracking Endpoint
+Endpoint: POST /api/shorts/watch
+File: backend/src/controllers/shortsController.ts
+Auth: Required
+
+Logic:
+
+Validates videoId (string) and watchSeconds (non-negative number)
+Clamps watchSeconds to max 180 (security: never trust client value)
+Checks Redis key shorts_watch_cooldown:{userId}:{videoId} with 30s TTL using NX (set-if-not-exists)
+If already set → returns 200 with coinsEarned: 0, xpEarned: 0 (acknowledged but no reward)
+Computes: coinsEarned = floor(watchSeconds/10) * 0 (currently 0 — coins disabled for watch time)
+Computes: xpEarned = floor(watchSeconds/10) * 2 (2 XP per 10s watched)
+Pushes WATCH_COMPLETED event to BullMQ queue for async processing
+Returns immediately with computed values
+Separate reward endpoint: POST /api/rewards/shorts (claimShortReward) — triggered when user explicitly claims, validates minWatchSeconds from AppConfig (default 8s), enforces 24h cooldown per video.
+
+8. All Ad-Related Backend Logic
+Ad Placement Engine (RemoteConfig):
+AdPlacement table: per-placement config (screen, format, intervals, cooldown, max per session)
+Delivered to app via GET /api/config/remote as adPlacements keyed map
+Ad Unit Mapping:
+configController.ts defines AD_UNIT_KEY_LOOKUP mapping logical keys to AdMob config keys:
+
+
+APP_OPEN → admob_android_app_open_ad_unit_id
+REWARDED → admob_android_rewarded_card_ad_unit_id
+REWARDED_DISCOVER → admob_android_rewarded_discover_ad_unit_id
+REWARDED_INTERSTITIAL → admob_android_rewarded_interstitial_card_ad_unit_id
+GAME_COMPLETION → admob_android_game_completion_ad_unit_id
+INTERSTITIAL_NAV → admob_android_interstitial_nav_ad_unit_id
+WALLET_INTERSTITIAL → admob_android_wallet_interstitial_ad_unit_id
+NATIVE → admob_android_native_ad_unit_id
+NEWS_BANNER → admob_android_news_banner_ad_unit_id
+Ad Event Pipeline (POST /api/config/ad-event):
+Saves AdEvent rows: REQUESTED, LOADED, FAILED_TO_LOAD, SHOWN, CLICKED, EARNED_REWARD, DISMISSED, ABANDONED
+Ad farming detection: Only for REWARDED ad types on DISMISSED/ABANDONED events
+Computes rolling abandonment ratio in configurable window (default 60 min)
+If abandonRatio >= 0.6 and sample >= 5: returns penaltyUntil timestamp (escalating penalty, 300–1800s)
+If sample >= 10 and ratio >= 0.85: logs HIGH severity AD_FARMING_SUSPECTED fraud incident
+Ad Analytics endpoints:
+GET /api/admin/ad-analytics/funnel — counts by eventType grouped
+GET /api/admin/ad-analytics/fill-rate — REQUESTED/LOADED/FAILED_TO_LOAD per adType with fill rate %
+GET /api/admin/ad-analytics/revenue-estimate — total ad rewards + payout cost in INR
+Daily Caps (enforced in claimAdReward):
+Global: maxAdsPerDay, maxCoinsPerDay, minCooldownSeconds (from DailyCapPolicy tier=DEFAULT)
+Per-type: dailyCapForType, cooldownSeconds (from AdRewardRule)
+Fraud detection: cooldown violations → FraudIncident with AD_REWARD_TOO_FAST
+Device check: rooted/emulator devices → FLAGGED_DEVICE_REWARD_CLAIM (403 blocked)
+9. Prometheus/Grafana Setup
+Prometheus:
+
+express-prom-bundle middleware on all routes, collects: method, path, status code, response time
+prometheus.yml: scrapes host.docker.internal:5000 every 15s, job name rewarded-backend
+Prometheus exposed at port 9090
+Grafana:
+
+Docker Compose: grafana/grafana:latest at port 3000
+Password from GRAFANA_ADMIN_PASSWORD env var (set to admin in dev .env)
+Anonymous access disabled
+Admin panel Monitoring page embeds Grafana via <iframe> using VITE_GRAFANA_URL env var
+Stack: docker-compose.yml runs: Redis (6380), Prometheus (9090), Grafana (3000), PostgreSQL (5432).
+
+10. Error Logging Setup
+Winston logger (backend/src/utils/logger.ts):
+
+Service name: rewarded-backend
+Format: JSON + timestamp + error stack
+Transports:
+Console (colorized, simple format)
+logs/error.log (errors only)
+logs/combined.log (all levels)
+Global error handler (errorMiddleware.ts):
+
+Catches unhandled Express errors
+Logs via logger.error(err.message, { stack })
+Returns 500 JSON; in production, omits stack from response
+System logs in admin panel:
+
+GET /api/admin/logs — reads last 100 lines of logs/combined.log via tail -n 100, parses JSON
+Morgan: HTTP access logs (combined format) piped to Winston logger.info.
+
+11. Database Models for Ads, Coins, User Rewards
+AdPlacement — where/how often ads appear
+
+id, key (unique), screen, adFormat, enabled,
+intervalMin, intervalMax, cooldownSeconds,
+maxPerSession, skipFirstNActions, adUnitKey,
+titleKey, descriptionKey, ctaLabelKey,
+updatedAt, updatedBy
+AdRewardRule — how much each ad format pays
+
+id, adType (unique), coinsAwarded, dailyCapForType,
+cooldownSeconds, enabled, requiresFullWatch,
+updatedAt, updatedBy
+DailyCapPolicy — global + tiered fraud caps
+
+id, tier (unique: DEFAULT/NEW_USER/HIGH_TRUST/LOW_TRUST),
+maxAdsPerDay, maxCoinsPerDay, minCooldownSeconds, updatedAt
+AdEvent — full ad lifecycle tracking
+
+id, userId, placementKey, adType, eventType,
+screen, sessionId, errorCode, latencyMs, timestamp
+Indexes: (userId,timestamp), (placementKey,eventType,timestamp), (adType,eventType)
+CoinLedger — all coin transactions (ledger pattern)
+
+id, userId, amount (+ credit / - debit), source,
+idempotencyKey (unique), sessionId, deviceId, ipHash, timestamp
+Index: (userId, timestamp)
+RouletteItem — roulette wheel slices
+
+id, label, color, rewardCoins, probability (0-100 float),
+sizePortion, popupType (WINNING/CONGRATULATION/BETTER_LUCK),
+imageUrl, isActive, sortOrder, createdAt, updatedAt
+RouletteSpinHistory
+id, userId, rouletteItemId, coinsAwarded, spinType (FREE/AD_REWARD), timestamp
+Missions — admin-created missions
+
+id, title, description, targetCount, rewardXp, rewardCoins,
+type (DAILY/ONETIME), isActive, activeFrom, activeTo,
+iconEmoji, difficulty (EASY/MEDIUM/HARD), tags[],
+metricType (CUSTOM/SCREENTIME_MIN/NEWS_READ/ADS_WATCHED/SHORTS_WATCHED/GAMES_PLAYED/REFERRALS/OFFERWALL)
+UserMissions — mission progress per user
+id, userId, missionId, progress, completedAt
+User — lifetime telemetry metrics
+
+lifetimeScreentimeMin, lifetimeNewsReads, lifetimeAdsWatched,
+lifetimeShortsWatched, lifetimeGamesPlayed, lifetimeOfferwallTasks,
+totalCoinsEarned, xp, level, streak, trustScore, riskScore,
+shadowBanned, banned
+FraudIncident
+id, userId, reason, severity (LOW/MEDIUM/HIGH/CRITICAL), metadata (JSON), resolved, createdAt
+Withdrawal
+
+id, userId, amountCoins, amountInr, status (PENDING/AUTO_APPROVED/MANUAL_REVIEW/FRAUD_HOLD/REJECTED),
+riskScoreAtTime, payoutMethod, destinationId, catalogItemId, catalogCode→, requestedAt, processedAt
+CatalogItem / CatalogCode — redeemable rewards
+
+CatalogItem: id, name, description, imageUrl, type (UPI/VOUCHER/PHYSICAL/CUSTOM), coinCost, inrValue, active, stock
+CatalogCode: id, catalogItemId, code, serialNumber, status (AVAILABLE/RESERVED/ISSUED/VOID), withdrawalId
+ShortsSessions — short video watch sessions
+id, userId, videoId, watchSeconds, coinsEarned, timestamp
+12. Environment Variables
+Backend .env:
+
+
+PORT=5000
+NODE_ENV=development
+JWT_SECRET=super_secret_jwt_key_for_dev
+GOOGLE_CLIENT_ID=270018474838-pubesd3l079iar2p6rtol3qdg5ffns0e.apps.googleusercontent.com
+YOUTUBE_API_KEY=AIzaSyCYFgUXKa6prZ6z3JSZqdC0XhHUsII3EMY
+FIREBASE_PROJECT_ID=lets-watch-and-earn
+DATABASE_URL=postgresql://postgres:postgres@localhost:5432/mobile_x_db
+REDIS_URL=redis://localhost:6380/0
+GRAFANA_ADMIN_PASSWORD=admin
+Reel-flow .env:
+
+
+EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID=270018474838-pubesd3l079iar2p6rtol3qdg5ffns0e.apps.googleusercontent.com
+EXPO_PUBLIC_API_URL=http://192.168.1.8:5000   (local dev; prod URL commented out: https://letsearn-production.up.railway.app)
+13. Admin Panel Structure
+Tech: React + TypeScript + Vite + Tailwind CSS. Auth via Google OAuth (@react-oauth/google), JWT stored in localStorage.
+
+Roles enforced backend-side:
+
+SUPER_ADMIN — full access
+FINANCE_ADMIN — withdrawals, catalog, referrals, analytics dashboard
+FRAUD_ANALYST — users, fraud logs, live tracking, user intelligence
+Admin panel pages:
+
+Route	Page	Purpose
+/	Dashboard	totalUsers, activeUsers, coins circulating, revenue
+/users	Users	Search/view users with fraud logs, balance
+/live	LiveTracking	Users active in last 5 min
+/analytics	Analytics	Revenue/shorts/ad stats
+/config	Config	Economy Control (AppConfig KV store)
+/withdrawals	Withdrawals	Approve/reject withdrawals
+/catalog	Catalog	Manage redeemable rewards + codes
+/ad-placements	AdPlacements	Ad placement engine CRUD
+/ad-rules	AdRewardRules	Per-ad-type coin payout + caps
+/cap-policies	DailyCapPolicies	Tier-based daily caps
+/feature-flags	FeatureFlags	HAPTICS/ANIMATION/EXPERIMENTAL/KILL_SWITCH flags
+/screen-layout	ScreenLayout	Section ordering per screen
+/ad-analytics	AdAnalytics	Funnel, fill rate, revenue estimate
+/roulette	RouletteConfig	Spin wheel slices (label, coins, probability, color)
+/fraud	FraudLogs	Fraud incidents
+/security	Security (Audit)	Audit log
+/missions	Missions	Mission builder (CRUD)
+/monitoring	Monitoring	Grafana iframe embed
+/logs	Logs	Combined.log tail
+/env	EnvConfig	.env editor (secrets redacted)
