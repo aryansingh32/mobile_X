@@ -1,12 +1,12 @@
 import { useShallow } from 'zustand/react/shallow';
-import React, { useEffect, useState } from 'react';
-import { ScrollView, StyleSheet, Text, View, Share } from 'react-native';
+import React, { useEffect, useRef, useState } from 'react';
+import { Animated, ScrollView, StyleSheet, Text, View, Share } from 'react-native';
 import { Pressable } from 'react-native';
 import { Copy, Gift, Users } from 'lucide-react-native';
 import * as Clipboard from 'expo-clipboard';
 import { getReferralStats } from '../api/referral';
 import { useAppStore } from '../store/useAppStore';
-import { COLORS, RADIUS, SPACING, TYPOGRAPHY } from '../constants/theme';
+import { COLORS, MOTION, RADIUS, SPACING, TYPOGRAPHY } from '../constants/theme';
 import ScreenHeader from '../components/ui/ScreenHeader';
 import AppButton from '../components/ui/AppButton';
 import { useToast } from '../components/ui/Toast';
@@ -15,13 +15,14 @@ const STEPS = [
   'Share your referral code with a friend',
   'Friend signs up using your code',
   'Friend completes their first missions',
-  'You both earn coins',
+  'You both earn VIB',
 ];
 
 export const ReferEarnScreen = ({ onBack }: { onBack: () => void }) => {
   const { user } = useAppStore(useShallow(s => ({ user: s.user })));
   const { showToast } = useToast();
   const [stats, setStats] = useState<any>(null);
+  const copyScale = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
     let mounted = true;
@@ -51,17 +52,26 @@ export const ReferEarnScreen = ({ onBack }: { onBack: () => void }) => {
         <View style={styles.heroCard}>
           <Users size={28} color={COLORS.yellow} />
           <Text style={styles.heroTitle}>Invite Your Friends</Text>
-          <Text style={styles.heroSubtitle}>Invite friends and earn coins together</Text>
+          <Text style={styles.heroSubtitle}>Invite friends and earn VIB together</Text>
         </View>
 
         <View style={styles.codeCard}>
           <Text style={styles.codeLabel}>Your Referral Code</Text>
           <View style={styles.codeRow}>
             <Text style={styles.codeText}>{code}</Text>
-            <Pressable style={styles.copyButton} onPress={copyCode} accessibilityRole="button" accessibilityLabel="Copy referral code">
-              <Copy size={16} color={COLORS.white} />
-              <Text style={styles.copyButtonText}>Copy</Text>
-            </Pressable>
+            <Animated.View style={{ transform: [{ scale: copyScale }] }}>
+              <Pressable
+                style={styles.copyButton}
+                onPress={copyCode}
+                onPressIn={() => Animated.spring(copyScale, { toValue: MOTION.press_scale, useNativeDriver: true, ...MOTION.spring_snappy }).start()}
+                onPressOut={() => Animated.spring(copyScale, { toValue: 1, useNativeDriver: true, ...MOTION.spring_snappy }).start()}
+                accessibilityRole="button"
+                accessibilityLabel="Copy referral code"
+              >
+                <Copy size={16} color={COLORS.white} />
+                <Text style={styles.copyButtonText}>Copy</Text>
+              </Pressable>
+            </Animated.View>
           </View>
         </View>
 

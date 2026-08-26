@@ -1,44 +1,88 @@
-import React, { useState, useEffect } from 'react';
-import { Users, Search, Shield, MapPin, Smartphone, Clock, CreditCard, Network } from 'lucide-react';
-import { adjustUserBalance, api, updateUserMetrics } from '../services/api';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { Users, Search, Shield, MapPin, Smartphone, Clock, CreditCard, Network, Download, ChevronLeft, ChevronRight, Flag } from 'lucide-react';
+import { adjustUserBalance, api, updateUserMetrics, bulkUpdateUsers } from '../services/api';
+
+type TriState = 'all' | 'true' | 'false';
+type SortBy = 'createdAt' | 'lastActiveAt' | 'trustScore' | 'riskScore' | 'name';
+
+const PAGE_SIZE_OPTIONS = [50, 100, 200];
 
 const UsersPage = () => {
   const [users, setUsers] = useState<any[]>([]);
+  const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState('');
   const [selectedUser, setSelectedUser] = useState<any | null>(null);
   const [balanceAmount, setBalanceAmount] = useState('');
   const [balanceReason, setBalanceReason] = useState('');
   const [adjusting, setAdjusting] = useState(false);
-  const [searchMessage, setSearchMessage] = useState('');
+  const [listError, setListError] = useState('');
 
-  useEffect(() => {
-    fetchUsers();
-  }, []);
+  // Filters — this is what makes the list usable at 10k+ users instead of
+  // scrolling through a flat, unfiltered dump.
+  const [search, setSearch] = useState('');
+  const [bannedFilter, setBannedFilter] = useState<TriState>('all');
+  const [shadowFilter, setShadowFilter] = useState<TriState>('all');
+  const [minTrust, setMinTrust] = useState('');
+  const [maxTrust, setMaxTrust] = useState('');
+  const [sortBy, setSortBy] = useState<SortBy>('createdAt');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
 
-  const fetchUsers = async () => {
+  // Pagination
+  const [limit, setLimit] = useState(100);
+  const [offset, setOffset] = useState(0);
+
+  // Bulk selection
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [bulkBusy, setBulkBusy] = useState(false);
+
+  const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const fetchUsers = useCallback(async () => {
+    setLoading(true);
+    setListError('');
     try {
-      const { data } = await api.get('/admin/users?limit=100');
-      setUsers(data.data);
+      const params: Record<string, string | number> = { limit, offset, sortBy, sortDir };
+      if (search.trim()) params.search = search.trim();
+      if (bannedFilter !== 'all') params.banned = bannedFilter;
+      if (shadowFilter !== 'all') params.shadowBanned = shadowFilter;
+      if (minTrust !== '') params.minTrust = minTrust;
+      if (maxTrust !== '') params.maxTrust = maxTrust;
+
+      const { data } = await api.get('/admin/users', { params });
+      setUsers(data.data || []);
+      setTotal(data.total ?? 0);
     } catch (err) {
       console.error(err);
+      setListError('Failed to load users. Try again.');
     } finally {
       setLoading(false);
     }
+  }, [limit, offset, sortBy, sortDir, search, bannedFilter, shadowFilter, minTrust, maxTrust]);
+
+  useEffect(() => {
+    fetchUsers();
+  }, [fetchUsers]);
+
+  // Any filter change resets to page 1 — a stale offset past a shrunk
+  // result set would otherwise render an empty page.
+  const resetToFirstPage = () => setOffset(0);
+
+  const onSearchChange = (value: string) => {
+    setSearch(value);
+    if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+    searchDebounceRef.current = setTimeout(() => {
+      resetToFirstPage();
+    }, 350);
   };
 
-  const handleSearch = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setSearchMessage('');
-    try {
-      const { data } = await api.get('/admin/users', { params: { limit: 100, search: search.trim() || undefined } });
-      setUsers(data.data || []);
-      if ((data.data || []).length === 1) loadUserIntelligence(data.data[0].id);
-      if ((data.data || []).length === 0) setSearchMessage('No matching users found.');
-    } catch (err) {
-      console.error(err);
-      setSearchMessage('Search failed. Try again.');
+  const toggleSort = (field: SortBy) => {
+    if (sortBy === field) {
+      setSortDir(sortDir === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortBy(field);
+      setSortDir('desc');
     }
+    resetToFirstPage();
   };
 
   const handleBalanceAdjustment = async (e: React.FormEvent) => {
@@ -46,7 +90,7 @@ const UsersPage = () => {
     if (!selectedUser) return;
     const amount = Number(balanceAmount);
     if (!Number.isInteger(amount) || amount === 0 || !balanceReason.trim()) return;
-    if (!window.confirm(`Adjust ${selectedUser.name}'s balance by ${amount} coins?`)) return;
+    if (!window.confirm(`Adjust ${selectedUser.name}'s balance by ${amount} VIB?`)) return;
     try {
       setAdjusting(true);
       await adjustUserBalance(selectedUser.id, amount, balanceReason.trim());
@@ -74,11 +118,11 @@ const UsersPage = () => {
     if (!selectedUser) return;
     const isBanned = selectedUser.banned;
     if (!window.confirm(`Are you sure you want to ${isBanned ? 'unban' : 'ban'} this user?`)) return;
-    
+
     try {
       await updateUserMetrics(selectedUser.id, { banned: !isBanned });
       loadUserIntelligence(selectedUser.id);
-      fetchUsers(); // Refresh list to reflect potentially changed status
+      fetchUsers();
     } catch (err) {
       console.error('Failed to update ban status', err);
       alert('Failed to update ban status');
@@ -89,70 +133,253 @@ const UsersPage = () => {
     if (!selectedUser) return;
     const isShadowbanned = selectedUser.shadowBanned;
     if (!window.confirm(`Are you sure you want to ${isShadowbanned ? 'remove shadowban from' : 'shadowban'} this user?`)) return;
-    
+
     try {
       await updateUserMetrics(selectedUser.id, { shadowBanned: !isShadowbanned });
       loadUserIntelligence(selectedUser.id);
-      fetchUsers(); // Refresh list
+      fetchUsers();
     } catch (err) {
       console.error('Failed to update shadowban status', err);
       alert('Failed to update shadowban status');
     }
   };
 
-  if (loading) return <div className="p-6 text-white">Loading Intelligence DB...</div>;
+  // ── Bulk selection ──────────────────────────────────────────────────
+  const toggleSelected = (id: number) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const allOnPageSelected = users.length > 0 && users.every((u) => selectedIds.has(u.id));
+  const toggleSelectAllOnPage = () => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (allOnPageSelected) {
+        users.forEach((u) => next.delete(u.id));
+      } else {
+        users.forEach((u) => next.add(u.id));
+      }
+      return next;
+    });
+  };
+
+  const runBulkAction = async (action: 'ban' | 'unban' | 'shadowban' | 'unshadowban') => {
+    if (selectedIds.size === 0) return;
+    if (!window.confirm(`Apply "${action}" to ${selectedIds.size} selected user(s)?`)) return;
+    setBulkBusy(true);
+    try {
+      await bulkUpdateUsers(Array.from(selectedIds), action);
+      setSelectedIds(new Set());
+      await fetchUsers();
+    } catch (err) {
+      console.error('Bulk action failed', err);
+      alert('Bulk action failed');
+    } finally {
+      setBulkBusy(false);
+    }
+  };
+
+  // ── CSV export (current filtered page) ──────────────────────────────
+  const exportCsv = () => {
+    const header = ['id', 'name', 'email', 'coins', 'trustScore', 'riskScore', 'banned', 'shadowBanned', 'country', 'createdAt', 'lastActiveAt'];
+    const rows = users.map((u) => header.map((key) => {
+      const v = u[key];
+      const cell = v === null || v === undefined ? '' : String(v);
+      return `"${cell.replace(/"/g, '""')}"`;
+    }).join(','));
+    const csv = [header.join(','), ...rows].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `users_export_${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
+  const page = Math.floor(offset / limit) + 1;
+  const pageCount = Math.max(1, Math.ceil(total / limit));
+  const canPrev = offset > 0;
+  const canNext = offset + limit < total;
 
   return (
     <div className="p-6 flex h-full gap-6">
       {/* Left List */}
-      <div className="w-1/3 flex flex-col">
-        <h1 className="text-2xl font-bold text-white mb-4 flex items-center">
-          <Users className="mr-3 text-blue-400" /> User Intelligence
-        </h1>
-        
-        <form onSubmit={handleSearch} className="mb-4 relative">
-          <input 
-            type="text" 
-            placeholder="Search ID, Email, IP..." 
+      <div className="w-2/5 flex flex-col min-w-[420px]">
+        <div className="flex items-center justify-between mb-4">
+          <h1 className="text-2xl font-bold text-white flex items-center">
+            <Users className="mr-3 text-blue-400" /> User Intelligence
+          </h1>
+          <span className="text-xs text-gray-500">{total.toLocaleString()} total</span>
+        </div>
+
+        {/* Search */}
+        <div className="mb-3 relative">
+          <input
+            type="text"
+            placeholder="Search ID, Email, Name..."
             className="w-full bg-[#1A1A1A] border border-[#333] rounded-lg pl-10 pr-4 py-2 text-white focus:outline-none focus:border-blue-500"
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            onChange={(e) => onSearchChange(e.target.value)}
           />
           <Search className="absolute left-3 top-2.5 text-gray-500" size={18} />
-        </form>
-        {searchMessage && <div role="alert" className="text-sm text-amber-400 mb-3">{searchMessage}</div>}
+        </div>
 
-        <div className="bg-[#1A1A1A] rounded-xl overflow-hidden border border-[#333] flex-1 overflow-y-auto">
-          {users.map(u => (
-            <div 
-              key={u.id} 
-              onClick={() => loadUserIntelligence(u.id)}
-              className={`p-4 border-b border-[#333] cursor-pointer transition-colors ${selectedUser?.id === u.id ? 'bg-blue-900/20 border-l-2 border-l-blue-500' : 'hover:bg-[#222]'}`}
+        {/* Filter bar */}
+        <div className="mb-3 grid grid-cols-2 gap-2 text-xs">
+          <select
+            value={bannedFilter}
+            onChange={(e) => { setBannedFilter(e.target.value as TriState); resetToFirstPage(); }}
+            className="bg-[#1A1A1A] border border-[#333] rounded-lg px-2 py-1.5 text-gray-300"
+          >
+            <option value="all">All (banned/active)</option>
+            <option value="false">Active only</option>
+            <option value="true">Banned only</option>
+          </select>
+          <select
+            value={shadowFilter}
+            onChange={(e) => { setShadowFilter(e.target.value as TriState); resetToFirstPage(); }}
+            className="bg-[#1A1A1A] border border-[#333] rounded-lg px-2 py-1.5 text-gray-300"
+          >
+            <option value="all">All (shadowban)</option>
+            <option value="false">Not shadowbanned</option>
+            <option value="true">Shadowbanned only</option>
+          </select>
+          <input
+            type="number"
+            placeholder="Min trust"
+            value={minTrust}
+            onChange={(e) => { setMinTrust(e.target.value); resetToFirstPage(); }}
+            className="bg-[#1A1A1A] border border-[#333] rounded-lg px-2 py-1.5 text-gray-300"
+          />
+          <input
+            type="number"
+            placeholder="Max trust"
+            value={maxTrust}
+            onChange={(e) => { setMaxTrust(e.target.value); resetToFirstPage(); }}
+            className="bg-[#1A1A1A] border border-[#333] rounded-lg px-2 py-1.5 text-gray-300"
+          />
+        </div>
+
+        {/* Sort bar */}
+        <div className="mb-3 flex items-center gap-1 text-xs text-gray-400 flex-wrap">
+          <span className="mr-1">Sort:</span>
+          {([
+            ['createdAt', 'Joined'],
+            ['lastActiveAt', 'Active'],
+            ['trustScore', 'Trust'],
+            ['riskScore', 'Risk'],
+            ['name', 'Name'],
+          ] as [SortBy, string][]).map(([field, label]) => (
+            <button
+              key={field}
+              onClick={() => toggleSort(field)}
+              className={`px-2 py-1 rounded ${sortBy === field ? 'bg-blue-900/40 text-blue-300' : 'bg-[#1A1A1A] hover:bg-[#222]'}`}
             >
-              <div className="flex justify-between items-start">
+              {label}{sortBy === field ? (sortDir === 'asc' ? ' ↑' : ' ↓') : ''}
+            </button>
+          ))}
+        </div>
+
+        {/* Bulk action toolbar */}
+        {selectedIds.size > 0 && (
+          <div className="mb-3 flex items-center gap-2 bg-blue-900/20 border border-blue-800/40 rounded-lg px-3 py-2 text-xs">
+            <span className="text-blue-300 font-semibold">{selectedIds.size} selected</span>
+            <div className="flex-1" />
+            <button disabled={bulkBusy} onClick={() => runBulkAction('ban')} className="px-2 py-1 rounded bg-red-900/40 text-red-300 hover:bg-red-900/60 disabled:opacity-50">Ban</button>
+            <button disabled={bulkBusy} onClick={() => runBulkAction('unban')} className="px-2 py-1 rounded bg-[#222] text-gray-300 hover:bg-[#2a2a2a] disabled:opacity-50">Unban</button>
+            <button disabled={bulkBusy} onClick={() => runBulkAction('shadowban')} className="px-2 py-1 rounded bg-gray-700 text-white hover:bg-gray-600 disabled:opacity-50">Shadowban</button>
+            <button disabled={bulkBusy} onClick={() => runBulkAction('unshadowban')} className="px-2 py-1 rounded bg-[#222] text-gray-300 hover:bg-[#2a2a2a] disabled:opacity-50">Un-shadow</button>
+            <button onClick={() => setSelectedIds(new Set())} className="px-2 py-1 rounded bg-[#111] text-gray-500 hover:text-gray-300">Clear</button>
+          </div>
+        )}
+
+        {listError && <div role="alert" className="text-sm text-amber-400 mb-3">{listError}</div>}
+
+        {/* List header row */}
+        <div className="flex items-center gap-2 px-4 py-2 text-[11px] uppercase tracking-wide text-gray-500 border-b border-[#333]">
+          <input type="checkbox" checked={allOnPageSelected} onChange={toggleSelectAllOnPage} className="accent-blue-500" />
+          <span>Select all on page</span>
+          <div className="flex-1" />
+          <button onClick={exportCsv} className="flex items-center gap-1 text-gray-400 hover:text-white" title="Export current page to CSV">
+            <Download size={12} /> Export
+          </button>
+        </div>
+
+        <div className="bg-[#1A1A1A] rounded-b-xl overflow-hidden border border-t-0 border-[#333] flex-1 overflow-y-auto">
+          {loading ? (
+            <div className="p-6 text-gray-500 text-sm">Loading…</div>
+          ) : users.length === 0 ? (
+            <div className="p-6 text-gray-500 text-sm">No matching users found.</div>
+          ) : users.map(u => (
+            <div
+              key={u.id}
+              className={`flex items-start gap-2 p-4 border-b border-[#333] cursor-pointer transition-colors ${selectedUser?.id === u.id ? 'bg-blue-900/20 border-l-2 border-l-blue-500' : 'hover:bg-[#222]'}`}
+            >
+              <input
+                type="checkbox"
+                checked={selectedIds.has(u.id)}
+                onChange={(e) => { e.stopPropagation(); toggleSelected(u.id); }}
+                onClick={(e) => e.stopPropagation()}
+                className="mt-1 accent-blue-500"
+              />
+              <div className="flex-1 flex justify-between items-start" onClick={() => loadUserIntelligence(u.id)}>
                 <div>
                   <div className="text-white font-bold flex items-center gap-2">
                     {u.name}
                     {u.banned && <span className="px-1.5 py-0.5 rounded text-[10px] bg-red-900/50 text-red-400">BANNED</span>}
                     {u.shadowBanned && <span className="px-1.5 py-0.5 rounded text-[10px] bg-gray-700 text-gray-300">SHADOW</span>}
+                    {u._count?.fraudLogs > 0 && (
+                      <span title={`${u._count.fraudLogs} fraud incident(s)`} className="flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] bg-orange-900/40 text-orange-400">
+                        <Flag size={10} /> {u._count.fraudLogs}
+                      </span>
+                    )}
                   </div>
                   <div className="text-gray-400 text-xs">{u.email}</div>
                 </div>
                 <div className="text-right">
-                  <div className="text-[var(--accent)] font-mono text-sm">{u.coins} coins</div>
+                  <div className="text-[var(--accent)] font-mono text-sm">{u.coins} VIB</div>
                   <div className={`text-xs mt-1 ${u.trustScore < 40 ? 'text-red-400' : 'text-green-400'}`}>TS: {u.trustScore}</div>
                 </div>
               </div>
             </div>
           ))}
         </div>
+
+        {/* Pagination */}
+        <div className="flex items-center justify-between mt-3 text-xs text-gray-400">
+          <div className="flex items-center gap-2">
+            <span>Page size:</span>
+            <select
+              value={limit}
+              onChange={(e) => { setLimit(Number(e.target.value)); setOffset(0); }}
+              className="bg-[#1A1A1A] border border-[#333] rounded px-2 py-1"
+            >
+              {PAGE_SIZE_OPTIONS.map((n) => <option key={n} value={n}>{n}</option>)}
+            </select>
+          </div>
+          <div className="flex items-center gap-3">
+            <span>Page {page} of {pageCount}</span>
+            <button disabled={!canPrev} onClick={() => setOffset(Math.max(0, offset - limit))} className="p-1.5 rounded bg-[#1A1A1A] border border-[#333] disabled:opacity-30 hover:bg-[#222]">
+              <ChevronLeft size={14} />
+            </button>
+            <button disabled={!canNext} onClick={() => setOffset(offset + limit)} className="p-1.5 rounded bg-[#1A1A1A] border border-[#333] disabled:opacity-30 hover:bg-[#222]">
+              <ChevronRight size={14} />
+            </button>
+          </div>
+        </div>
       </div>
 
       {/* Right Intelligence Panel */}
-      <div className="w-2/3">
+      <div className="flex-1">
         {selectedUser ? (
           <div className="bg-[#1A1A1A] rounded-xl border border-[#333] h-full overflow-y-auto p-6">
-            
+
             {/* Header */}
             <div className="flex justify-between items-start border-b border-[#333] pb-6 mb-6">
               <div>
@@ -167,13 +394,13 @@ const UsersPage = () => {
                 </div>
               </div>
               <div className="flex gap-2">
-                <button 
+                <button
                   onClick={handleBanUser}
                   className={`px-4 py-2 rounded border transition-colors ${selectedUser.banned ? 'bg-red-500/20 text-red-300 border-red-500/50 hover:bg-red-500/30' : 'bg-red-900/30 text-red-400 border-red-900/50 hover:bg-red-900/50'}`}
                 >
                   {selectedUser.banned ? 'Unban User' : 'Ban User'}
                 </button>
-                <button 
+                <button
                   onClick={handleShadowbanUser}
                   className={`px-4 py-2 rounded transition-colors ${selectedUser.shadowBanned ? 'bg-gray-600 text-white hover:bg-gray-500' : 'bg-gray-800 text-white hover:bg-gray-700'}`}
                 >
@@ -186,7 +413,7 @@ const UsersPage = () => {
             <div className="grid grid-cols-4 gap-4 mb-8">
               <div className="bg-[#222] p-4 rounded-lg">
                 <div className="text-gray-500 text-xs mb-1 flex items-center"><CreditCard size={14} className="mr-1"/> Balance</div>
-                <div className="text-xl font-bold text-[var(--accent)]">{selectedUser.coins || 0} coins</div>
+                <div className="text-xl font-bold text-[var(--accent)]">{selectedUser.coins || 0} VIB</div>
               </div>
               <div className="bg-[#222] p-4 rounded-lg">
                 <div className="text-gray-500 text-xs mb-1 flex items-center"><Shield size={14} className="mr-1"/> Trust Score</div>
@@ -205,7 +432,7 @@ const UsersPage = () => {
             <form onSubmit={handleBalanceAdjustment} className="bg-[#222] border border-[#333] rounded-lg p-4 mb-8">
               <h3 className="text-sm font-bold text-white mb-3">Manual balance adjustment</h3>
               <div className="grid grid-cols-[160px_1fr_auto] gap-3">
-                <label className="sr-only" htmlFor="balance-amount">Coin amount</label>
+                <label className="sr-only" htmlFor="balance-amount">VIB amount</label>
                 <input id="balance-amount" type="number" step="1" value={balanceAmount} onChange={e => setBalanceAmount(e.target.value)} placeholder="+100 or -100" className="bg-[#111] border border-[#444] rounded px-3 py-2 text-white" required />
                 <label className="sr-only" htmlFor="balance-reason">Reason</label>
                 <input id="balance-reason" value={balanceReason} onChange={e => setBalanceReason(e.target.value)} placeholder="Required audit reason" className="bg-[#111] border border-[#444] rounded px-3 py-2 text-white" required />
@@ -246,7 +473,7 @@ const UsersPage = () => {
 
             {/* Deep Dive Tabs */}
             <div className="space-y-6">
-              
+
               {/* Device History */}
               <div>
                 <h3 className="text-lg font-bold text-white mb-3 flex items-center"><Smartphone size={18} className="mr-2 text-blue-400"/> Device History</h3>

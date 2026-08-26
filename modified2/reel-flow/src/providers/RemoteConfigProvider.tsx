@@ -25,13 +25,23 @@ export const RemoteConfigProvider: React.FC<{ children: React.ReactNode }> = ({ 
   const configVersion = useConfigStore((s) => s.version);
   const setConfig = useConfigStore((s) => s.setConfig);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const inFlightRef = useRef(false);
 
   const doFetch = useCallback(async () => {
     if (!token) return; // Can't fetch without auth
+    // Mount, foreground, and the 15-minute interval can all land within
+    // moments of each other — skip if a fetch is already in flight instead
+    // of firing overlapping requests.
+    if (inFlightRef.current) return;
+    inFlightRef.current = true;
 
-    const result = await fetchRemoteConfig(configVersion);
-    if (result) {
-      setConfig(result);
+    try {
+      const result = await fetchRemoteConfig(configVersion);
+      if (result) {
+        setConfig(result);
+      }
+    } finally {
+      inFlightRef.current = false;
     }
   }, [token, configVersion, setConfig]);
 

@@ -1,7 +1,7 @@
-import React from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import React, { useRef } from 'react';
+import { Animated, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Check } from 'lucide-react-native';
-import { COLORS, RADIUS, SPACING, TYPOGRAPHY } from '../../constants/theme';
+import { COLORS, MOTION, RADIUS, SPACING, TYPOGRAPHY } from '../../constants/theme';
 
 type DailyStreakRowProps = {
   streak: number;
@@ -12,6 +12,13 @@ type DailyStreakRowProps = {
 const DailyStreakRow = ({ streak, claimedToday, onClaim }: DailyStreakRowProps) => {
   const currentDay = Math.min(7, Math.max(1, (streak % 7) || 7));
   const bonus = Math.min(50, currentDay * 5);
+  const claimScale = useRef(new Animated.Value(1)).current;
+  const onClaimPressIn = () => {
+    Animated.spring(claimScale, { toValue: MOTION.press_scale, useNativeDriver: true, ...MOTION.spring_snappy }).start();
+  };
+  const onClaimPressOut = () => {
+    Animated.spring(claimScale, { toValue: 1, useNativeDriver: true, ...MOTION.spring_snappy }).start();
+  };
 
   return (
     <View style={styles.container}>
@@ -34,11 +41,18 @@ const DailyStreakRow = ({ streak, claimedToday, onClaim }: DailyStreakRowProps) 
 
       {!claimedToday && (
         <View style={styles.claimRow}>
-          <Text style={styles.claimText}>Claim Today: +{bonus} coins</Text>
+          <Text style={styles.claimText}>Claim Today: +{bonus} VIB</Text>
           {onClaim && (
-            <Pressable style={styles.claimButton} onPress={onClaim}>
-              <Text style={styles.claimButtonText}>Claim</Text>
-            </Pressable>
+            <Animated.View style={{ transform: [{ scale: claimScale }] }}>
+              <Pressable
+                style={styles.claimButton}
+                onPress={onClaim}
+                onPressIn={onClaimPressIn}
+                onPressOut={onClaimPressOut}
+              >
+                <Text style={styles.claimButtonText}>Claim</Text>
+              </Pressable>
+            </Animated.View>
           )}
         </View>
       )}

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, Pressable, ImageBackground, Dimensions } from 'react-native';
+import { View, Text, StyleSheet, Pressable, Dimensions } from 'react-native';
+import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Gamepad2 } from 'lucide-react-native';
 import { Shimmer } from './Shimmer';
@@ -20,21 +21,24 @@ export const GameGridCard = ({ game, onPress }: Props) => {
   const url = thumbnailUrl(game);
 
   return (
-    <Pressable style={styles.card} onPress={onPress}>
+    <Pressable style={({ pressed }) => [styles.card, pressed && { opacity: 0.75 }]} onPress={onPress}>
       <View style={styles.imageContainer}>
         {url ? (
           <>
-            <ImageBackground 
-              source={{ uri: url }} 
+            <Image
+              source={{ uri: url }}
               style={styles.image}
+              contentFit="cover"
+              cachePolicy="memory-disk"
+              transition={200}
+              priority="low"
               onLoad={() => setImageLoaded(true)}
-            >
-              <LinearGradient colors={['rgba(0,0,0,0.0)', 'rgba(0,0,0,0.85)']} style={styles.overlay}>
-                <View style={[styles.iconBadge, { backgroundColor: game.accent }]}>
-                  <Icon color="#111" size={16} />
-                </View>
-              </LinearGradient>
-            </ImageBackground>
+            />
+            <LinearGradient colors={['rgba(0,0,0,0.0)', 'rgba(0,0,0,0.85)']} style={styles.overlay}>
+              <View style={[styles.iconBadge, { backgroundColor: game.accent }]}>
+                <Icon color="#111" size={16} />
+              </View>
+            </LinearGradient>
             {!imageLoaded && <Shimmer style={StyleSheet.absoluteFillObject} />}
           </>
         ) : (
@@ -80,7 +84,7 @@ const styles = StyleSheet.create({
     height: '100%',
   },
   overlay: {
-    flex: 1,
+    ...StyleSheet.absoluteFillObject,
     padding: 8,
     justifyContent: 'flex-end',
     alignItems: 'flex-start',

@@ -32,29 +32,84 @@ export const getMe = async (req: Request, res: Response): Promise<void> => {
   res.json({ data: { id: user.id, email: user.email, name: user.name, role: user.role } });
 };
 
-export const getAllUsers = async (req: Request, res: Response) => {
-  try {
-    const limit = parseInt(req.query.limit as string) || 50;
-    const offset = parseInt(req.query.offset as string) || 0;
-    const search = String(req.query.search || '').trim();
-    const numericId = /^\d+$/.test(search) ? Number(search) : null;
-    const where = search ? {
+const SORTABLE_USER_FIELDS = new Set(['createdAt', 'lastActiveAt', 'trustScore', 'riskScore', 'name']);
+
+// Parses the /admin/users query string into a Prisma `where` — shared by the
+// list endpoint and the bulk-action "select everything matching this filter"
+// path so the two can never disagree about which users a filter matches.
+const buildUserListWhere = (query: Request['query']) => {
+  const search = String(query.search || '').trim();
+  const numericId = /^\d+$/.test(search) ? Number(search) : null;
+
+  const banned = query.banned === 'true' ? true : query.banned === 'false' ? false : undefined;
+  const shadowBanned = query.shadowBanned === 'true' ? true : query.shadowBanned === 'false' ? false : undefined;
+  const minTrust = query.minTrust !== undefined ? parseInt(query.minTrust as string) : undefined;
+  const maxTrust = query.maxTrust !== undefined ? parseInt(query.maxTrust as string) : undefined;
+  const minRisk = query.minRisk !== undefined ? parseInt(query.minRisk as string) : undefined;
+  const maxRisk = query.maxRisk !== undefined ? parseInt(query.maxRisk as string) : undefined;
+  const country = typeof query.country === 'string' && query.country.trim() ? query.country.trim() : undefined;
+
+  const clauses: any[] = [];
+  if (search) {
+    clauses.push({
       OR: [
         ...(numericId ? [{ id: numericId }] : []),
         { email: { contains: search, mode: 'insensitive' as const } },
         { name: { contains: search, mode: 'insensitive' as const } },
       ],
-    } : undefined;
-    
-    const users = await prisma.user.findMany({
-      ...(where ? { where } : {}),
-      take: limit, skip: offset, orderBy: { createdAt: 'desc' },
-      include: {
-        fraudLogs: { orderBy: { createdAt: 'desc' }, take: 1 },
-        devices: true
-      }
     });
-    
+  }
+  if (banned !== undefined) clauses.push({ banned });
+  if (shadowBanned !== undefined) clauses.push({ shadowBanned });
+  if (country !== undefined) clauses.push({ country });
+  if (Number.isFinite(minTrust) || Number.isFinite(maxTrust)) {
+    clauses.push({
+      trustScore: {
+        ...(Number.isFinite(minTrust) ? { gte: minTrust } : {}),
+        ...(Number.isFinite(maxTrust) ? { lte: maxTrust } : {}),
+      },
+    });
+  }
+  if (Number.isFinite(minRisk) || Number.isFinite(maxRisk)) {
+    clauses.push({
+      riskScore: {
+        ...(Number.isFinite(minRisk) ? { gte: minRisk } : {}),
+        ...(Number.isFinite(maxRisk) ? { lte: maxRisk } : {}),
+      },
+    });
+  }
+
+  return clauses.length > 0 ? { AND: clauses } : undefined;
+};
+
+export const getAllUsers = async (req: Request, res: Response) => {
+  try {
+    const limit = Math.min(parseInt(req.query.limit as string) || 50, 200);
+    const offset = parseInt(req.query.offset as string) || 0;
+    const where = buildUserListWhere(req.query);
+
+    const sortByRaw = String(req.query.sortBy || 'createdAt');
+    const sortBy = SORTABLE_USER_FIELDS.has(sortByRaw) ? sortByRaw : 'createdAt';
+    const sortDir = req.query.sortDir === 'asc' ? 'asc' : 'desc';
+
+    const [users, total] = await Promise.all([
+      prisma.user.findMany({
+        ...(where ? { where } : {}),
+        take: limit,
+        skip: offset,
+        orderBy: { [sortBy]: sortDir },
+        // Full device/fraud-log rows are only needed on the single-user
+        // detail view (getUserIntelligence) — the list only needs enough to
+        // render a risk badge, not every row, so this stays cheap at 10k+
+        // rows per page load instead of shipping every device fingerprint
+        // for every user in the page.
+        include: {
+          _count: { select: { devices: true, fraudLogs: true } },
+        },
+      }),
+      prisma.user.count({ ...(where ? { where } : {}) }),
+    ]);
+
     const userIds = users.map((u) => u.id);
     const balances = userIds.length > 0
       ? await prisma.coinLedger.groupBy({
@@ -66,8 +121,39 @@ export const getAllUsers = async (req: Request, res: Response) => {
     const balanceByUserId = new Map(balances.map((row) => [row.userId, row._sum.amount || 0]));
     const usersWithBalance = users.map((u) => ({ ...u, coins: balanceByUserId.get(u.id) || 0 }));
 
-    const total = where ? await prisma.user.count({ where }) : await prisma.user.count();
     res.json({ data: usersWithBalance, total, limit, offset });
+  } catch (error: any) { sendServerError(res, error); }
+};
+
+const BULK_USER_ACTIONS = {
+  ban: { banned: true },
+  unban: { banned: false },
+  shadowban: { shadowBanned: true },
+  unshadowban: { shadowBanned: false },
+} as const;
+
+export const bulkUpdateUsers = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { userIds, action } = req.body;
+    if (!Array.isArray(userIds) || userIds.length === 0) {
+      res.status(400).json({ error: 'userIds must be a non-empty array' });
+      return;
+    }
+    if (userIds.length > 5000) {
+      res.status(400).json({ error: 'Too many users in one request (max 5000) — filter down and retry' });
+      return;
+    }
+    const patch = BULK_USER_ACTIONS[action as keyof typeof BULK_USER_ACTIONS];
+    if (!patch) {
+      res.status(400).json({ error: `Invalid action. Must be one of: ${Object.keys(BULK_USER_ACTIONS).join(', ')}` });
+      return;
+    }
+
+    const ids = userIds.map((id: any) => parseInt(id, 10)).filter((id: number) => Number.isInteger(id));
+    const result = await prisma.user.updateMany({ where: { id: { in: ids } }, data: patch });
+
+    await logAdminAction(req, 'BULK_UPDATE_USERS', `action=${action} count=${result.count} ids=${ids.slice(0, 50).join(',')}${ids.length > 50 ? '…' : ''}`);
+    res.json({ message: `Applied "${action}" to ${result.count} user(s)`, count: result.count });
   } catch (error: any) { sendServerError(res, error); }
 };
 

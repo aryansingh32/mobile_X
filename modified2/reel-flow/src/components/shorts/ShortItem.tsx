@@ -2,11 +2,11 @@ import React, { useCallback, useRef, useState, useEffect, useMemo } from 'react'
 import {
   View,
   Text,
-  Image,
   StyleSheet,
   Pressable,
   Animated,
 } from 'react-native';
+import { Image } from 'expo-image';
 import { WebView } from 'react-native-webview';
 import {
   Heart,
@@ -24,6 +24,11 @@ import { VIBIcon } from '../ui/VIBIcon';
 const SHOW_AUTHOR_INFO = false;
 // Seconds of active watch time before the Short session is tracked for analytics.
 const COIN_REWARD_WATCH_SECONDS = 8;
+// Fraction of player height left clear above/below the tap-gesture zone so the
+// native YouTube title/watermark (top) and progress-bar/controls (bottom)
+// stay reachable — required by YouTube API TOS (controls must not be obscured).
+const GESTURE_ZONE_TOP_INSET = 0.12;
+const GESTURE_ZONE_BOTTOM_INSET = 0.22;
 
 // ── Types ────────────────────────────────────────────────────────────────
 export interface ShortData {
@@ -74,11 +79,15 @@ function ShimmerThumbnail({ videoId }: { videoId: string }) {
 
   return (
     <View style={shimmerStyles.root}>
-      {/* Low-res thumbnail loads fast (~100ms) from YouTube CDN */}
+      {/* Low-res thumbnail loads fast (~100ms) from YouTube CDN, cached to disk
+          so re-scrolling past a seen video shows it instantly instead of refetching. */}
       <Image
         source={{ uri: `https://img.youtube.com/vi/${videoId}/mqdefault.jpg` }}
         style={StyleSheet.absoluteFill}
-        resizeMode="cover"
+        contentFit="cover"
+        cachePolicy="memory-disk"
+        priority="high"
+        transition={150}
       />
       {/* Shimmer pulse overlay */}
       <Animated.View
@@ -282,6 +291,13 @@ export const ShortItem = React.memo(function ShortItem({
     <html>
       <head>
         <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+        <!-- Open the connections the iframe API + player will need before it asks for them,
+             so DNS/TLS negotiation isn't sitting on the critical path to first frame. -->
+        <link rel="preconnect" href="https://www.youtube.com" />
+        <link rel="preconnect" href="https://i.ytimg.com" />
+        <link rel="preconnect" href="https://s.ytimg.com" crossorigin />
+        <link rel="dns-prefetch" href="https://www.youtube.com" />
+        <link rel="dns-prefetch" href="https://i.ytimg.com" />
         <style>
           body, html {
             margin: 0; padding: 0; background: #000;
@@ -343,7 +359,11 @@ export const ShortItem = React.memo(function ShortItem({
               videoId: reelFlowVideoId,
               playerVars: {
                 autoplay: 1,
-                controls: 0,
+                // Must stay 1 — YouTube API TOS prohibits disabling/hiding the
+                // native player controls (progress bar, YT logo/watermark,
+                // volume). See the gestureZone below for how we keep our own
+                // tap gestures without covering them.
+                controls: 1,
                 mute: 1,
                 playsinline: 1,
                 loop: 1,
@@ -425,6 +445,14 @@ export const ShortItem = React.memo(function ShortItem({
               mediaPlaybackRequiresUserAction={false}
               allowsInlineMediaPlayback={true}
               onMessage={onMessage}
+              cacheEnabled
+              cacheMode="LOAD_DEFAULT"
+              androidLayerType="hardware"
+              renderToHardwareTextureAndroid
+              decelerationRate="normal"
+              domStorageEnabled
+              startInLoadingState={false}
+              overScrollMode="never"
             />
             {/* Shimmer overlay while WebView cold-loads (active item only) */}
             {(isActive || isPreload) && !ready && (
@@ -437,19 +465,31 @@ export const ShortItem = React.memo(function ShortItem({
           <Image
             source={{ uri: `https://img.youtube.com/vi/${data.id}/mqdefault.jpg` }}
             style={StyleSheet.absoluteFill}
-            resizeMode="cover"
+            contentFit="cover"
+            cachePolicy="memory-disk"
+            priority="low"
+            transition={150}
           />
         )}
       </View>
 
       {/* ── Layer 1: Gesture interceptor ──────────── */}
-      {/* This invisible layer intercepts single/double taps. */}
-      {/* By default it covers the top 80% (0.8) of the screen, leaving the bottom 20% uncovered */}
-      {/* so the YouTube logo and share buttons remain tappable (TOS compliance). */}
-      {/* TO ADJUST: Change 0.8 to a different percentage, e.g., 0.9 for 90%, or replace with playerHeight - 150 */}
+      {/* This invisible layer intercepts single/double taps for our own
+          play/pause + like gestures. Now that the native YouTube controls
+          are enabled (controls: 1, required by TOS — see playerVars above),
+          this MUST leave the top title/channel/watermark area and the
+          bottom progress-bar/controls area reachable — it only covers the
+          vertical middle band of the player, not the full height. */}
+      {/* TO ADJUST: change GESTURE_ZONE_TOP_INSET / GESTURE_ZONE_BOTTOM_INSET below. */}
       {isActive && (
         <Pressable
-          style={[styles.gestureZone, { height: playerHeight * 0.8}]}
+          style={[
+            styles.gestureZone,
+            {
+              top: playerHeight * GESTURE_ZONE_TOP_INSET,
+              height: playerHeight * (1 - GESTURE_ZONE_TOP_INSET - GESTURE_ZONE_BOTTOM_INSET),
+            },
+          ]}
           pointerEvents={playing ? 'auto' : 'none'}
           onPress={handleTap}
         />
@@ -486,7 +526,7 @@ export const ShortItem = React.memo(function ShortItem({
             <View style={styles.bottomInfo}>
               <View style={styles.authorRow}>
                 <View style={styles.avatarContainer}>
-                  <Image source={{ uri: data.avatar }} style={styles.avatar} />
+                  <Image source={{ uri: data.avatar }} style={styles.avatar} cachePolicy="memory-disk" />
                   <View style={styles.plusIcon}>
                     <Plus size={12} color="#fff" strokeWidth={3} />
                   </View>

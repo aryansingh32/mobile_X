@@ -1,5 +1,6 @@
-import React, { useEffect, useRef } from 'react';
-import { Animated, View, StyleSheet, StyleProp, ViewStyle, Dimensions } from 'react-native';
+import React, { useEffect, useRef, useState } from 'react';
+import { Animated, View, StyleSheet, StyleProp, ViewStyle, Dimensions, Easing } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 
 interface ShimmerProps {
   width?: number | string;
@@ -8,34 +9,49 @@ interface ShimmerProps {
   style?: StyleProp<ViewStyle>;
 }
 
+const SWEEP_MS = 1100;
+
 export const Shimmer: React.FC<ShimmerProps> = ({ width, height, borderRadius = 4, style }) => {
-  const opacity = useRef(new Animated.Value(0.3)).current;
+  const translateX = useRef(new Animated.Value(0)).current;
+  const [layoutWidth, setLayoutWidth] = useState(0);
 
   useEffect(() => {
-    const pulse = Animated.sequence([
-      Animated.timing(opacity, {
-        toValue: 0.7,
-        duration: 900,
+    if (!layoutWidth) return;
+    translateX.setValue(-layoutWidth);
+    const loop = Animated.loop(
+      Animated.timing(translateX, {
+        toValue: layoutWidth,
+        duration: SWEEP_MS,
+        easing: Easing.linear,
         useNativeDriver: true,
-      }),
-      Animated.timing(opacity, {
-        toValue: 0.3,
-        duration: 900,
-        useNativeDriver: true,
-      }),
-    ]);
-
-    Animated.loop(pulse).start();
-  }, [opacity]);
+      })
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [layoutWidth, translateX]);
 
   return (
-    <Animated.View
-      style={[
-        styles.shimmer,
-        { width: width as any, height: height as any, borderRadius, opacity },
-        style,
-      ]}
-    />
+    <View
+      style={[styles.shimmer, { width: width as any, height: height as any, borderRadius }, style]}
+      onLayout={(e) => {
+        const w = e.nativeEvent.layout.width;
+        if (Math.abs(w - layoutWidth) > 1) setLayoutWidth(w);
+      }}
+    >
+      {layoutWidth > 0 && (
+        <Animated.View
+          pointerEvents="none"
+          style={[StyleSheet.absoluteFill, { width: layoutWidth, transform: [{ translateX }] }]}
+        >
+          <LinearGradient
+            colors={['rgba(255,255,255,0)', 'rgba(255,255,255,0.16)', 'rgba(255,255,255,0)']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 0 }}
+            style={StyleSheet.absoluteFill}
+          />
+        </Animated.View>
+      )}
+    </View>
   );
 };
 
@@ -49,7 +65,7 @@ export const ShimmerCard: React.FC<{ style?: StyleProp<ViewStyle> }> = ({ style 
       <View style={styles.textContent}>
         <Shimmer width="80%" height={24} borderRadius={4} style={{ marginBottom: 12 }} />
         <Shimmer width="60%" height={24} borderRadius={4} style={{ marginBottom: 20 }} />
-        
+
         <Shimmer width="100%" height={16} borderRadius={4} style={{ marginBottom: 8 }} />
         <Shimmer width="90%" height={16} borderRadius={4} style={{ marginBottom: 8 }} />
         <Shimmer width="70%" height={16} borderRadius={4} style={{ marginBottom: 20 }} />
@@ -65,6 +81,7 @@ export const ShimmerCard: React.FC<{ style?: StyleProp<ViewStyle> }> = ({ style 
 const styles = StyleSheet.create({
   shimmer: {
     backgroundColor: 'rgba(255,255,255,0.08)',
+    overflow: 'hidden',
   },
   shimmerCardContainer: {
     width: CARD_WIDTH,

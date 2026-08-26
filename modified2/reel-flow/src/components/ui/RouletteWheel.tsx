@@ -16,7 +16,6 @@ import Svg, { Path, G, Text as SvgText, Image as SvgImage } from 'react-native-s
 import { COLORS, RADIUS, SPACING } from '../../constants/theme';
 import { claimRouletteSpin } from '../../api/rewards';
 import { useToast } from './Toast';
-import { VIBIcon } from './VIBIcon';
 
 const windowWidth = Dimensions.get('window').width;
 const WHEEL_SIZE = Math.min(windowWidth - 80, 240);
@@ -36,7 +35,9 @@ export type RouletteSlice = {
 type Props = {
   chances: number;
   config: RouletteSlice[];
-  onSpinSuccess: (coinsEarned: number, slice: RouletteSlice) => void;
+  // Roulette is a chance-based mechanic — its reward is XP, never real/
+  // withdrawable VIB coins (see claimRouletteSpin on the backend).
+  onSpinSuccess: (xpEarned: number, slice: RouletteSlice) => void;
   onWatchAd: () => void;
   isAdPlaying: boolean;
   isAdPenalized: boolean;
@@ -159,11 +160,7 @@ export const RouletteWheel = ({
           <Sparkles color="#FFD700" size={18} />
           <Text style={styles.title}>Lucky Spin Wheel</Text>
         </View>
-        <View style={{flexDirection: 'row', alignItems: 'center'}}>
-          <Text style={styles.subtitle}>Spin to win up to 1000 </Text>
-          <VIBIcon size={12} style={{ marginHorizontal: 2 }} />
-          <Text style={styles.subtitle}> daily!</Text>
-        </View>
+        <Text style={styles.subtitle}>Spin to win up to 1000 XP daily!</Text>
       </View>
 
       <View style={styles.wheelWrapper}>

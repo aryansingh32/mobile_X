@@ -28,6 +28,7 @@ import { useAdPlacement, isAdPenalized, getAdPenaltyRemainingSeconds } from '../
 import { useAdUnitId } from '../hooks/useAdUnitId';
 import { reportAdEvent } from '../api/config';
 import { reportAdEventWithPenaltyCheck, formatAdPenaltyMessage } from '../utils/adFarmingGuard';
+import { fetchCached, invalidateCached } from '../utils/requestCache';
 import { getRouletteConfig } from '../api/rewards';
 import { getDeviceId } from '../utils/deviceSafety';
 import CoinRain from '../components/ui/CoinRain';
@@ -93,7 +94,7 @@ export const HomeScreen = ({
   const [autoSpinPending, setAutoSpinPending] = useState(false);
   const [rouletteConfig, setRouletteConfig] = useState<RouletteSlice[]>([]);
   const [showRedemptionSuccess, setShowRedemptionSuccess] = useState(false);
-  const [wonCoinsAmount, setWonCoinsAmount] = useState(0);
+  const [wonXpAmount, setWonXpAmount] = useState(0);
   const [showRouletteModal, setShowRouletteModal] = useState(false);
   const [isSponsoredCardShattered, setIsSponsoredCardShattered] = useState(false);
   const [rouletteConfigLoading, setRouletteConfigLoading] = useState(false);
@@ -347,41 +348,63 @@ export const HomeScreen = ({
   const referralBody = useContent('home.referral.body', "Earn 10% of your friends' withdrawals forever!");
   const referralButton = useContent('home.referral.button', 'Share Code');
 
+  const applyLoadedData = (
+    profile: any,
+    dailyMissions: any,
+    fetchedGames: any,
+    rConf: any,
+  ) => {
+    setBalance(profile?.coins ?? 0);
+    setXp(profile?.xp ?? 0);
+    setLevel(profile?.level ?? 1);
+    setStreak(profile?.streak ?? 0);
+    setDailyStats({
+      remaining: profile?.dailyAdRemaining ?? 20,
+      cap: profile?.dailyAdCap ?? 20,
+      todayEarned: profile?.todayCoinsEarned ?? 0,
+    });
+    setStreakClaimedToday(!!profile?.streakClaimedToday);
+    setDailyBonusAvailable(!!profile?.dailyBonusAvailable);
+    setConfigValues({
+      coinToInrRate: profile?.coinToInrRate ?? profile?.config?.coin_to_inr_rate ?? 0.10,
+      minWithdrawalCoins: profile?.minWithdrawalCoins ?? profile?.config?.min_withdrawal_coins ?? 500,
+      adRewardedCoins: profile?.config?.ad_rewarded_coins,
+      adRewardedInterstitialCoins: profile?.config?.ad_rewarded_interstitial_coins,
+      adRewardedDiscoverCoins: profile?.config?.ad_rewarded_discover_coins,
+    });
+    setMissions(dailyMissions);
+    setGames(fetchedGames);
+    setRouletteChances(profile?.rouletteChancesRemaining ?? 2);
+    if (rConf?.success && Array.isArray(rConf.data) && rConf.data.length > 0) {
+      setRouletteConfig(rConf.data);
+    }
+  };
+
   const loadData = async (mounted = true) => {
     try {
       if (!mounted) return;
       setError('');
-      const [profile, dailyMissions, fetchedGames, rConf] = await Promise.all([
-        getProfile(),
-        getDailyMissions(),
-        fetchGamesFromOrigin(),
-        getRouletteConfig(),
-      ]);
+      // Stale-while-revalidate: an instant re-visit to Home (e.g. tab switch)
+      // paints last known state immediately instead of a blank shimmer, then
+      // silently refreshes in the background.
+      const [profile, dailyMissions, fetchedGames, rConf] = await fetchCached(
+        'home:dashboard',
+        () => Promise.all([
+          getProfile(),
+          getDailyMissions(),
+          fetchGamesFromOrigin(),
+          getRouletteConfig(),
+        ]),
+        {
+          ttlMs: 8_000,
+          staleMs: 2 * 60_000,
+          onStaleData: ([p, dm, fg, rc]) => {
+            if (mounted) applyLoadedData(p, dm, fg, rc);
+          },
+        },
+      );
       if (!mounted) return;
-      setBalance(profile?.coins ?? 0);
-      setXp(profile?.xp ?? 0);
-      setLevel(profile?.level ?? 1);
-      setStreak(profile?.streak ?? 0);
-      setDailyStats({
-        remaining: profile?.dailyAdRemaining ?? 20,
-        cap: profile?.dailyAdCap ?? 20,
-        todayEarned: profile?.todayCoinsEarned ?? 0,
-      });
-      setStreakClaimedToday(!!profile?.streakClaimedToday);
-      setDailyBonusAvailable(!!profile?.dailyBonusAvailable);
-      setConfigValues({
-        coinToInrRate: profile?.coinToInrRate ?? profile?.config?.coin_to_inr_rate ?? 0.10,
-        minWithdrawalCoins: profile?.minWithdrawalCoins ?? profile?.config?.min_withdrawal_coins ?? 500,
-        adRewardedCoins: profile?.config?.ad_rewarded_coins,
-        adRewardedInterstitialCoins: profile?.config?.ad_rewarded_interstitial_coins,
-        adRewardedDiscoverCoins: profile?.config?.ad_rewarded_discover_coins,
-      });
-      setMissions(dailyMissions);
-      setGames(fetchedGames);
-      setRouletteChances(profile?.rouletteChancesRemaining ?? 2);
-      if (rConf?.success && Array.isArray(rConf.data) && rConf.data.length > 0) {
-        setRouletteConfig(rConf.data);
-      }
+      applyLoadedData(profile, dailyMissions, fetchedGames, rConf);
     } catch {
       if (mounted) setError('Network issue. Please try again later.');
     } finally {
@@ -423,6 +446,7 @@ export const HomeScreen = ({
 
   const onRefresh = () => {
     setRefreshing(true);
+    invalidateCached('home:dashboard');
     loadData();
   };
 
@@ -745,19 +769,22 @@ export const HomeScreen = ({
                 onWatchAd={triggerRouletteAd}
                 autoSpinPending={autoSpinPending}
                 onAutoSpinConsumed={() => setAutoSpinPending(false)}
-                onSpinSuccess={async (coinsEarned, slice) => {
-                  if (coinsEarned > 0) {
-                    setBalance(coinBalance + coinsEarned);
-                    setCoinRain({ visible: true, amount: coinsEarned });
+                onSpinSuccess={async (xpEarned, slice) => {
+                  // Roulette is a chance-based mechanic — its reward is XP only,
+                  // never real/withdrawable VIB, so this must never touch
+                  // coinBalance or show coin iconography (CoinRain is VIB-branded).
+                  // See claimRouletteSpin on the backend for the compliance note.
+                  if (xpEarned > 0) {
+                    setXp(useAppStore.getState().xp + xpEarned);
                   }
                   if (slice.popupType === 'CONGRATULATION' || slice.popupType === 'WINNING') {
-                    setWonCoinsAmount(coinsEarned);
+                    setWonXpAmount(xpEarned);
                     setShowRedemptionSuccess(true);
                     setShowRouletteModal(false);
                     } else {
                     showToast(
-                      coinsEarned > 0 ? <View style={{flexDirection: 'row', alignItems: 'center'}}><Text style={{color: '#fff', fontSize: 14}}>You won {coinsEarned} </Text><VIBIcon size={14} /><Text style={{color: '#fff', fontSize: 14}}>!</Text></View> : 'Better luck next time!',
-                      coinsEarned > 0 ? 'success' : 'info'
+                      xpEarned > 0 ? `You won ${xpEarned} XP!` : 'Better luck next time!',
+                      xpEarned > 0 ? 'success' : 'info'
                     );
                   }
                   loadData();
@@ -786,8 +813,8 @@ export const HomeScreen = ({
         <RedemptionSuccessScreen
           itemName="Roulette Prize"
           coinsSpent={0}
-          title={wonCoinsAmount > 0 ? "Congratulations!" : "Better luck next time!"}
-          detail={wonCoinsAmount > 0 ? <View style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'center'}}><Text style={{ color: 'rgba(255,255,255,0.55)', fontSize: 13 }}>You won {wonCoinsAmount} </Text><VIBIcon size={14} /></View> : undefined}
+          title={wonXpAmount > 0 ? "Congratulations!" : "Better luck next time!"}
+          detail={wonXpAmount > 0 ? <Text style={{ color: 'rgba(255,255,255,0.55)', fontSize: 13 }}>You won {wonXpAmount} XP</Text> : undefined}
           onDone={() => setShowRedemptionSuccess(false)}
         />
       )}

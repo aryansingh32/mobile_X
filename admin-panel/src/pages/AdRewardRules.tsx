@@ -77,7 +77,7 @@ const AdRewardRules: React.FC = () => {
             <div className="space-y-4">
               <div>
                 <label className="text-xs text-gray-400 block mb-1 flex items-center justify-between">
-                  Payout (Coins)
+                  Payout (VIB)
                   <Coins size={12} className="text-yellow-400" />
                 </label>
                 <div className="flex">

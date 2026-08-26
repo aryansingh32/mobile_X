@@ -131,6 +131,17 @@ export const BUNDLED_DEFAULT_CONFIG: RemoteConfigPayload = {
       skipFirstNActions: 0,
       adUnitKey: 'WALLET_INTERSTITIAL',
     },
+    wallet_rewarded_card: {
+      screen: 'WALLET',
+      adFormat: 'REWARDED',
+      enabled: true,
+      intervalMin: 1,
+      intervalMax: 1,
+      cooldownSeconds: 45,
+      maxPerSession: 8,
+      skipFirstNActions: 0,
+      adUnitKey: 'REWARDED_CARD',
+    },
   },
   adRewardRules: {
     REWARDED: {

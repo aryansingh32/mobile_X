@@ -1,8 +1,9 @@
-import React from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import React, { useRef } from 'react';
+import { Animated, Pressable, StyleSheet, Text, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { CheckCircle } from 'lucide-react-native';
 import { VIBIcon } from './VIBIcon';
+import { MOTION } from '../../constants/theme';
 
 type RewardCardProps = {
   coins: number;
@@ -13,6 +14,13 @@ type RewardCardProps = {
 };
 
 const RewardCard = ({ coins, onWatch, onSkip, duration = '~30 seconds', claimed = false }: RewardCardProps) => {
+  const watchScale = useRef(new Animated.Value(1)).current;
+  const onWatchPressIn = () => {
+    Animated.spring(watchScale, { toValue: MOTION.press_scale, useNativeDriver: true, ...MOTION.spring_snappy }).start();
+  };
+  const onWatchPressOut = () => {
+    Animated.spring(watchScale, { toValue: 1, useNativeDriver: true, ...MOTION.spring_snappy }).start();
+  };
   return (
     <LinearGradient
       colors={
@@ -61,11 +69,18 @@ const RewardCard = ({ coins, onWatch, onSkip, duration = '~30 seconds', claimed 
           </View>
         ) : (
           <>
-            <Pressable style={styles.watchButton} onPress={onWatch}>
-              <Text style={styles.watchText}>Watch Now</Text>
-            </Pressable>
+            <Animated.View style={{ transform: [{ scale: watchScale }] }}>
+              <Pressable
+                style={styles.watchButton}
+                onPress={onWatch}
+                onPressIn={onWatchPressIn}
+                onPressOut={onWatchPressOut}
+              >
+                <Text style={styles.watchText}>Watch Now</Text>
+              </Pressable>
+            </Animated.View>
             {onSkip && (
-              <Pressable onPress={onSkip} style={styles.skipBtn}>
+              <Pressable onPress={onSkip} style={({ pressed }) => [styles.skipBtn, pressed && styles.pressedDim]}>
                 <Text style={styles.skipText}>Skip</Text>
               </Pressable>
             )}
@@ -191,6 +206,9 @@ const styles = StyleSheet.create({
   skipText: {
     color: 'rgba(255,255,255,0.35)',
     fontSize: 11,
+  },
+  pressedDim: {
+    opacity: 0.75,
   },
 });
 

@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { getAllUsers, adjustUserBalance, updateUserMetrics, getWithdrawals, processWithdrawal, getFraudLogs, resolveFraud, getSystemLogs, getMe } from '../controllers/adminController';
+import { getAllUsers, adjustUserBalance, updateUserMetrics, bulkUpdateUsers, getWithdrawals, processWithdrawal, getFraudLogs, resolveFraud, getSystemLogs, getMe } from '../controllers/adminController';
 import { authenticate, authorizeAdmin, authorizeFinanceAdmin, authorizeFraudAnalyst, authorizeSuperAdmin } from '../middlewares/authMiddleware';
 import {
   getAllConfig, updateConfig,
@@ -19,6 +19,7 @@ router.get('/me', getMe);
 router.get('/users', authorizeFraudAnalyst, getAllUsers);
 router.post('/users/:userId/balance', authorizeFinanceAdmin, adjustUserBalance);
 router.post('/users/:userId/metrics', authorizeFraudAnalyst, updateUserMetrics);
+router.post('/users/bulk-action', authorizeFraudAnalyst, bulkUpdateUsers);
 
 router.get('/withdrawals', authorizeFinanceAdmin, getWithdrawals);
 router.post('/withdrawals/:withdrawalId/process', authorizeFinanceAdmin, processWithdrawal);

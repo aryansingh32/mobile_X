@@ -3,15 +3,15 @@ import { Animated, Easing, View, Text, StyleSheet, Image } from 'react-native';
 import { fetchMarqueeItems, MarqueeItem } from '../../api/marquee';
 
 const CHIP_MESSAGES_ROW1 = [
-  "withdrawn 1000 coins", "redeemed a hoodie", "unlocked a mystery box", 
-  "referred 5 friends", "100% trusted", "won a jackpot", 
+  "withdrawn 1000 VIB", "redeemed a hoodie", "unlocked a mystery box",
+  "referred 5 friends", "100% trusted", "won a jackpot",
   "redeemed premium pass", "got instant payout", "loved the rewards"
 ];
 
 const CHIP_MESSAGES_ROW2 = [
-  "joined now", "cashed out 5000 coins", "done feedback", 
-  "shared with friends", "referral rewarded", "redeemed success", 
-  "i liked this app", "just unlocked premium", "earned 10000 coins"
+  "joined now", "cashed out 5000 VIB", "done feedback",
+  "shared with friends", "referral rewarded", "redeemed success",
+  "i liked this app", "just unlocked premium", "earned 10000 VIB"
 ];
 
 export const MarqueeRow = ({ items, direction, isBottom }: { items: MarqueeItem[], direction: 'left' | 'right', isBottom?: boolean }) => {

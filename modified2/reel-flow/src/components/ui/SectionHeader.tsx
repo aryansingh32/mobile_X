@@ -22,7 +22,13 @@ export const SectionHeader: React.FC<SectionHeaderProps> = ({ title, subtitle, a
         {subtitle ? <Text style={styles.subtitle}>{subtitle}</Text> : null}
       </View>
       {actionLabel ? (
-        <Pressable onPress={onActionPress} style={styles.action} hitSlop={8} accessibilityRole="button" accessibilityLabel={actionLabel}>
+        <Pressable
+          onPress={onActionPress}
+          style={({ pressed }) => [styles.action, pressed && styles.pressedDim]}
+          hitSlop={8}
+          accessibilityRole="button"
+          accessibilityLabel={actionLabel}
+        >
           <Text style={styles.actionText}>{actionLabel}</Text>
           <ChevronRight size={16} color={COLORS.white_55} />
         </Pressable>
@@ -59,6 +65,9 @@ const styles = StyleSheet.create({
     ...TYPOGRAPHY.caption,
     color: COLORS.white_55,
     fontWeight: '600',
+  },
+  pressedDim: {
+    opacity: 0.75,
   },
 });
 

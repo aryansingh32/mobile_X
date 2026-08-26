@@ -310,7 +310,7 @@ const RouletteConfig = () => {
                     </div>
                     <div className="flex gap-4">
                       <div className="flex-1">
-                        <label className="text-xs text-gray-400 block mb-1">Reward (Coins)</label>
+                        <label className="text-xs text-gray-400 block mb-1">Reward (XP — not withdrawable coins)</label>
                         <input type="number" value={formData.rewardCoins} onChange={e => setFormData({ ...formData, rewardCoins: Number(e.target.value) })} className="w-full bg-black/50 border border-gray-700 rounded p-2 text-white text-sm" />
                       </div>
                       <div className="flex-1">
@@ -369,7 +369,7 @@ const RouletteConfig = () => {
                     <div className="grid grid-cols-2 gap-4 bg-black/30 p-3 rounded-lg mb-2">
                       <div>
                         <div className="text-xs text-gray-500 uppercase tracking-wider mb-1">Reward</div>
-                        <div className="font-medium text-yellow-400">{item.rewardCoins} Coins</div>
+                        <div className="font-medium text-yellow-400">{item.rewardCoins} XP</div>
                       </div>
                       <div>
                         <div className="text-xs text-gray-500 uppercase tracking-wider mb-1">Probability</div>
@@ -417,7 +417,7 @@ const RouletteConfig = () => {
                   </div>
                   <div className="flex gap-4">
                     <div className="flex-1">
-                      <label className="text-xs text-gray-400 block mb-1">Reward (Coins)</label>
+                      <label className="text-xs text-gray-400 block mb-1">Reward (XP — not withdrawable coins)</label>
                       <input type="number" value={formData.rewardCoins} onChange={e => setFormData({ ...formData, rewardCoins: Number(e.target.value) })} className="w-full bg-black/50 border border-gray-700 rounded p-2 text-white text-sm" />
                     </div>
                     <div className="flex-1">

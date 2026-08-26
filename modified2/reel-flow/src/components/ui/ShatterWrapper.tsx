@@ -23,76 +23,112 @@ interface Shard {
   delay: number;
   isSparkle: boolean;
   isGold: boolean;
+  isHighlight: boolean;
 }
 
-// Tune these to trade off polish vs perf
-const COLS = 6;
-const ROWS = 8;
-const SHATTER_MS = 620;   // shards flying apart
-const COLLAPSE_MS = 380;  // card height collapsing to reveal item below
-const FLASH_MS = 90;      // quick white "impact" flash before the break
+// Tune these to trade off polish vs perf. Density adapts to card size (see
+// buildShards) instead of a fixed grid, so a 90px reward strip and a
+// full-screen short don't pay the same shard count.
+const TARGET_SHARD_PX = 38;
+const MAX_SHARDS = 54;
+const ANTICIPATION_MS = 70; // tiny squash-in before impact sells the "crack"
+const FLASH_MS = 90;        // quick white "impact" flash before the break
+const SHATTER_MS = 620;     // shards flying apart
+const COLLAPSE_MS = 380;    // card height collapsing to reveal item below
+
+function buildShards(width: number, height: number): Shard[] {
+  if (width <= 0 || height <= 0) return [];
+
+  let cols = Math.max(3, Math.round(width / TARGET_SHARD_PX));
+  let rows = Math.max(3, Math.round(height / TARGET_SHARD_PX));
+  if (cols * rows > MAX_SHARDS) {
+    const scale = Math.sqrt(MAX_SHARDS / (cols * rows));
+    cols = Math.max(3, Math.round(cols * scale));
+    rows = Math.max(3, Math.round(rows * scale));
+  }
+
+  // Pick a random "impact point" — shards fly radially outward from here,
+  // which is what makes it read as glass breaking instead of confetti.
+  const impactX = width * (0.3 + Math.random() * 0.4);
+  const impactY = height * (0.3 + Math.random() * 0.4);
+
+  const shardW = width / cols;
+  const shardH = height / rows;
+  const maxDist = Math.hypot(width, height);
+  const pieces: Shard[] = [];
+
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const cx = c * shardW + shardW / 2;
+      const cy = r * shardH + shardH / 2;
+      const dx = cx - impactX;
+      const dy = cy - impactY;
+      const dist = Math.hypot(dx, dy) || 1;
+      const ux = dx / dist;
+      const uy = dy / dist;
+
+      // Pieces near the impact fly further & spin faster; far pieces are
+      // bigger, slower, and drop more (gravity-ish drift).
+      const proximity = 1 - Math.min(dist / maxDist, 1);
+      const flight = 130 + dist * 0.85 + Math.random() * 130;
+      const gravityDrop = 55 + proximity * 110;
+
+      const isSparkle = Math.random() > 0.9;
+      const isGold = !isSparkle && Math.random() > 0.88;
+      const isHighlight = !isSparkle && !isGold && Math.random() > 0.6;
+
+      pieces.push({
+        id: `${r}-${c}`,
+        left: c * shardW,
+        top: r * shardH,
+        width: shardW * (isSparkle ? 0.4 : 0.55 + Math.random() * 0.5),
+        height: shardH * (isSparkle ? 0.4 : 0.55 + Math.random() * 0.5),
+        translateX: ux * flight + (Math.random() - 0.5) * 55,
+        translateY: uy * flight + gravityDrop,
+        rotation: (Math.random() - 0.5) * (380 + proximity * 640),
+        scale: Math.random() * 0.4 + (isSparkle ? 1.3 : 0.5),
+        delay: Math.random() * 40, // tiny stagger so it doesn't pop as one block
+        isSparkle,
+        isGold,
+        isHighlight,
+      });
+    }
+  }
+  return pieces;
+}
 
 export const ShatterWrapper: React.FC<ShatterWrapperProps> = ({
   children, isShattered, onAnimationComplete, width, height, glassColor = 'rgba(26, 26, 46, 0.95)',
 }) => {
   const [shards, setShards] = useState<Shard[]>([]);
-  const shatterAnim = useRef(new Animated.Value(0)).current; // native driver
-  const flashAnim = useRef(new Animated.Value(0)).current;   // native driver
-  const heightAnim = useRef(new Animated.Value(height)).current; // JS driver (layout)
+  const anticipationAnim = useRef(new Animated.Value(0)).current; // native driver
+  const shatterAnim = useRef(new Animated.Value(0)).current;      // native driver
+  const flashAnim = useRef(new Animated.Value(0)).current;        // native driver
+  const heightAnim = useRef(new Animated.Value(height)).current;  // JS driver (layout)
+  const hasShatteredRef = useRef(false);
 
   useEffect(() => {
-    // Pick a random "impact point" — shards fly radially outward from here,
-    // which is what makes it read as glass breaking instead of confetti.
-    const impactX = width * (0.3 + Math.random() * 0.4);
-    const impactY = height * (0.3 + Math.random() * 0.4);
-
-    const shardW = width / COLS;
-    const shardH = height / ROWS;
-    const maxDist = Math.hypot(width, height);
-    const pieces: Shard[] = [];
-
-    for (let r = 0; r < ROWS; r++) {
-      for (let c = 0; c < COLS; c++) {
-        const cx = c * shardW + shardW / 2;
-        const cy = r * shardH + shardH / 2;
-        const dx = cx - impactX;
-        const dy = cy - impactY;
-        const dist = Math.hypot(dx, dy) || 1;
-        const ux = dx / dist;
-        const uy = dy / dist;
-
-        // Pieces near the impact fly further & spin faster; far pieces are
-        // bigger, slower, and drop more (gravity-ish drift).
-        const proximity = 1 - Math.min(dist / maxDist, 1);
-        const flight = 140 + dist * 0.85 + Math.random() * 140;
-        const gravityDrop = 60 + proximity * 120;
-
-        const isSparkle = Math.random() > 0.88;
-        const isGold = Math.random() > 0.88;
-
-        pieces.push({
-          id: `${r}-${c}`,
-          left: c * shardW,
-          top: r * shardH,
-          width: shardW * (isSparkle ? 0.4 : (0.55 + Math.random() * 0.5)),
-          height: shardH * (isSparkle ? 0.4 : (0.55 + Math.random() * 0.5)),
-          translateX: ux * flight + (Math.random() - 0.5) * 60,
-          translateY: uy * flight + gravityDrop,
-          rotation: (Math.random() - 0.5) * (400 + proximity * 700),
-          scale: Math.random() * 0.4 + (isSparkle ? 1.4 : 0.5),
-          delay: Math.random() * 40, // tiny stagger so it doesn't pop as one block
-          isSparkle,
-          isGold,
-        });
-      }
-    }
-    setShards(pieces);
-  }, [width, height]);
+    heightAnim.setValue(height);
+  }, [height]);
 
   useEffect(() => {
-    if (!isShattered) return;
+    if (!isShattered || hasShatteredRef.current) return;
+    hasShatteredRef.current = true;
 
-    Animated.sequence([
+    // Shard geometry is only worth computing for the one card that's
+    // actually breaking — not for every off-screen list item mounted
+    // nearby, which is what made this expensive before.
+    setShards(buildShards(width, height));
+
+    const animation = Animated.sequence([
+      // Brief squash toward the impact point — reads as glass "giving" a beat
+      // before it cracks, instead of popping straight to shards.
+      Animated.timing(anticipationAnim, {
+        toValue: 1,
+        duration: ANTICIPATION_MS,
+        easing: Easing.out(Easing.quad),
+        useNativeDriver: true,
+      }),
       // Quick white flash = "impact" cue, cheap but sells the effect
       Animated.timing(flashAnim, {
         toValue: 1,
@@ -120,10 +156,21 @@ export const ShatterWrapper: React.FC<ShatterWrapperProps> = ({
         easing: Easing.inOut(Easing.ease),
         useNativeDriver: false, // height is a layout prop, can't be native-driven
       }),
-    ]).start(() => onAnimationComplete?.());
-    // Total: ~90 + 620 + 380 ≈ 1.1s — well inside your 2-3s budget with room to spare
+    ]);
+
+    animation.start(({ finished }) => {
+      if (finished) onAnimationComplete?.();
+    });
+
+    return () => animation.stop();
+    // Total: ~70 + 90 + 620 + 380 ≈ 1.16s — well inside a 2-3s budget with room to spare
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isShattered]);
 
+  const anticipationScale = anticipationAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [1, 0.97],
+  });
   const childrenOpacity = shatterAnim.interpolate({
     inputRange: [0, 0.12],
     outputRange: [1, 0],
@@ -140,7 +187,7 @@ export const ShatterWrapper: React.FC<ShatterWrapperProps> = ({
   });
 
   return (
-    <Animated.View style={[styles.container, { height: heightAnim, width }]}>
+    <Animated.View style={[styles.container, { height: heightAnim, width, transform: [{ scale: anticipationScale }] }]}>
       {/* Clipped layer: just the real card content, keeps rounded corners clean */}
       <Animated.View style={[styles.clip, { opacity: childrenOpacity, transform: [{ scale: childrenScale }] }]}>
         {children}
@@ -150,7 +197,7 @@ export const ShatterWrapper: React.FC<ShatterWrapperProps> = ({
       </Animated.View>
 
       {/* Unclipped layer: shards need to fly beyond the card's own bounds */}
-      {isShattered && (
+      {isShattered && shards.length > 0 && (
         <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, styles.shardLayer]}>
           {shards.map((shard) => {
             const progress = shatterAnim.interpolate({
@@ -187,7 +234,10 @@ export const ShatterWrapper: React.FC<ShatterWrapperProps> = ({
                   opacity,
                   transform: [{ translateX }, { translateY }, { rotate }, { scale }],
                   borderWidth: shard.isSparkle ? 0 : 0.5,
-                  borderColor: 'rgba(255,215,0,0.2)',
+                  borderTopColor: shard.isHighlight ? 'rgba(255,255,255,0.55)' : 'rgba(255,215,0,0.2)',
+                  borderLeftColor: shard.isHighlight ? 'rgba(255,255,255,0.35)' : 'rgba(255,215,0,0.2)',
+                  borderRightColor: 'rgba(0,0,0,0.15)',
+                  borderBottomColor: 'rgba(0,0,0,0.15)',
                 }}
               />
             );

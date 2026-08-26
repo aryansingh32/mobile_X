@@ -18,6 +18,7 @@ import { reportAdEvent } from '../../api/config';
 import { reportAdEventWithPenaltyCheck, formatAdPenaltyMessage } from '../../utils/adFarmingGuard';
 import { useAdUnitId } from '../../hooks/useAdUnitId';
 import { getDeviceId } from '../../utils/deviceSafety';
+import { fetchCached } from '../../utils/requestCache';
 
 const { height: windowHeight } = Dimensions.get('window');
 const OFFSET = (windowHeight - CARD_HEIGHT) / 3;
@@ -186,7 +187,8 @@ export const DiscoverScreen: React.FC = () => {
   };
 
   useEffect(() => {
-    fetchNewsFilters().then(res => {
+    // Categories/sources rarely change — instant on remount, revalidates in the background.
+    fetchCached('discover:filters', () => fetchNewsFilters(), { ttlMs: 60_000, staleMs: 30 * 60_000 }).then(res => {
       setCategories(res?.categories || []);
       setSources(res?.sources || []);
     }).catch(() => {
@@ -319,7 +321,7 @@ export const DiscoverScreen: React.FC = () => {
           if (currentAdCardId.current) watchedAdIds.current.add(currentAdCardId.current);
         } else {
           triggerHaptic('error');
-          Alert.alert('Reward cancelled', 'Watch the full video without switching apps to earn coins.');
+          Alert.alert('Reward cancelled', 'Watch the full video without switching apps to earn VIB.');
         }
       },
     );
