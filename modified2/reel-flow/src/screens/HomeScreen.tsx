@@ -94,7 +94,7 @@ export const HomeScreen = ({
   const [autoSpinPending, setAutoSpinPending] = useState(false);
   const [rouletteConfig, setRouletteConfig] = useState<RouletteSlice[]>([]);
   const [showRedemptionSuccess, setShowRedemptionSuccess] = useState(false);
-  const [wonCoinsAmount, setWonCoinsAmount] = useState(0);
+  const [wonXpAmount, setWonXpAmount] = useState(0);
   const [showRouletteModal, setShowRouletteModal] = useState(false);
   const [isSponsoredCardShattered, setIsSponsoredCardShattered] = useState(false);
   const [rouletteConfigLoading, setRouletteConfigLoading] = useState(false);
@@ -769,19 +769,22 @@ export const HomeScreen = ({
                 onWatchAd={triggerRouletteAd}
                 autoSpinPending={autoSpinPending}
                 onAutoSpinConsumed={() => setAutoSpinPending(false)}
-                onSpinSuccess={async (coinsEarned, slice) => {
-                  if (coinsEarned > 0) {
-                    setBalance(coinBalance + coinsEarned);
-                    setCoinRain({ visible: true, amount: coinsEarned });
+                onSpinSuccess={async (xpEarned, slice) => {
+                  // Roulette is a chance-based mechanic — its reward is XP only,
+                  // never real/withdrawable VIB, so this must never touch
+                  // coinBalance or show coin iconography (CoinRain is VIB-branded).
+                  // See claimRouletteSpin on the backend for the compliance note.
+                  if (xpEarned > 0) {
+                    setXp(useAppStore.getState().xp + xpEarned);
                   }
                   if (slice.popupType === 'CONGRATULATION' || slice.popupType === 'WINNING') {
-                    setWonCoinsAmount(coinsEarned);
+                    setWonXpAmount(xpEarned);
                     setShowRedemptionSuccess(true);
                     setShowRouletteModal(false);
                     } else {
                     showToast(
-                      coinsEarned > 0 ? <View style={{flexDirection: 'row', alignItems: 'center'}}><Text style={{color: '#fff', fontSize: 14}}>You won {coinsEarned} </Text><VIBIcon size={14} /><Text style={{color: '#fff', fontSize: 14}}>!</Text></View> : 'Better luck next time!',
-                      coinsEarned > 0 ? 'success' : 'info'
+                      xpEarned > 0 ? `You won ${xpEarned} XP!` : 'Better luck next time!',
+                      xpEarned > 0 ? 'success' : 'info'
                     );
                   }
                   loadData();
@@ -810,8 +813,8 @@ export const HomeScreen = ({
         <RedemptionSuccessScreen
           itemName="Roulette Prize"
           coinsSpent={0}
-          title={wonCoinsAmount > 0 ? "Congratulations!" : "Better luck next time!"}
-          detail={wonCoinsAmount > 0 ? <View style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'center'}}><Text style={{ color: 'rgba(255,255,255,0.55)', fontSize: 13 }}>You won {wonCoinsAmount} </Text><VIBIcon size={14} /></View> : undefined}
+          title={wonXpAmount > 0 ? "Congratulations!" : "Better luck next time!"}
+          detail={wonXpAmount > 0 ? <Text style={{ color: 'rgba(255,255,255,0.55)', fontSize: 13 }}>You won {wonXpAmount} XP</Text> : undefined}
           onDone={() => setShowRedemptionSuccess(false)}
         />
       )}

@@ -41,7 +41,7 @@ const DailyStreakRow = ({ streak, claimedToday, onClaim }: DailyStreakRowProps) 
 
       {!claimedToday && (
         <View style={styles.claimRow}>
-          <Text style={styles.claimText}>Claim Today: +{bonus} coins</Text>
+          <Text style={styles.claimText}>Claim Today: +{bonus} VIB</Text>
           {onClaim && (
             <Animated.View style={{ transform: [{ scale: claimScale }] }}>
               <Pressable

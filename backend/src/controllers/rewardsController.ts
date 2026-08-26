@@ -129,25 +129,31 @@ export const handleAdMobSSV = async (req: any, res: Response): Promise<void> => 
       return;
     }
 
-    try {
-      await addLedgerEntry(uid, rule.coinsAwarded, rule.adType, 'admob-ssv', transactionId, dStr === 'null' ? undefined : dStr);
-    } catch (e: any) {
-      if (e.code === 'P2002') {
-        res.status(200).send('OK');
-        return;
+    // A rule can legitimately be configured (via the admin panel) with 0 coins —
+    // e.g. an ad type that only unlocks a non-monetary perk. addLedgerEntry()
+    // rejects zero-amount entries by design, so skip the ledger write entirely
+    // in that case instead of letting it throw and 500 the whole SSV callback.
+    if (rule.coinsAwarded !== 0) {
+      try {
+        await addLedgerEntry(uid, rule.coinsAwarded, rule.adType, 'admob-ssv', transactionId, dStr === 'null' ? undefined : dStr);
+      } catch (e: any) {
+        if (e.code === 'P2002') {
+          res.status(200).send('OK');
+          return;
+        }
+        throw e;
       }
-      throw e;
+
+      const xpRatio = Math.max(1, await getConfigInt('xp_per_coin_ratio', 2));
+      const xpGained = Math.floor(rule.coinsAwarded / xpRatio);
+      if (xpGained > 0) {
+        await addExp(uid, xpGained).catch(() => undefined);
+      }
+      await prisma.user.update({
+        where: { id: uid },
+        data: { totalCoinsEarned: { increment: rule.coinsAwarded } },
+      }).catch(() => undefined);
     }
-    
-    const xpRatio = Math.max(1, await getConfigInt('xp_per_coin_ratio', 2));
-    const xpGained = Math.floor(rule.coinsAwarded / xpRatio);
-    if (xpGained > 0) {
-      await addExp(uid, xpGained).catch(() => undefined);
-    }
-    await prisma.user.update({
-      where: { id: uid },
-      data: { totalCoinsEarned: { increment: rule.coinsAwarded } },
-    }).catch(() => undefined);
 
     res.status(200).send('OK');
   } catch (error: any) {
@@ -436,7 +442,6 @@ export const claimRouletteSpin = async (req: AuthRequest, res: Response): Promis
     }
 
     const userId = req.user.id;
-    const { deviceId, sessionId } = req.body;
 
     const todayStart = new Date();
     todayStart.setHours(0, 0, 0, 0);
@@ -451,10 +456,11 @@ export const claimRouletteSpin = async (req: AuthRequest, res: Response): Promis
           timestamp: { gte: todayStart },
         },
       }),
-      prisma.coinLedger.count({
+      // Spins are no longer coin-ledger entries (see below) — count from the
+      // spin history table itself instead.
+      prisma.rouletteSpinHistory.count({
         where: {
           userId,
-          source: 'ROULETTE_SPIN',
           timestamp: { gte: todayStart },
         },
       }),
@@ -497,55 +503,44 @@ export const claimRouletteSpin = async (req: AuthRequest, res: Response): Promis
       return;
     }
 
-    const coinsWon = selectedSlice.rewardCoins;
-    const clientIp = requestIp.getClientIp(req) || 'unknown';
-    
-    // SERVER-SIDE Idempotency Key to prevent concurrency bypass
-    // FIX: Use client provided sessionId to prevent concurrency bypass
-    const spinSessionId = crypto.createHash('sha256').update(String(sessionId)).digest('hex');
+    // NOTE: The roulette wheel is a chance-based mechanic (weighted random slice
+    // selection). Crediting real, withdrawable coins for a chance outcome is what
+    // Google Play's Real-Money Gambling policy targets, regardless of licensing —
+    // so this reward is deliberately NOT added to the coin ledger (which backs the
+    // cash-withdrawable balance via getBalance()/CoinLedger). It converts entirely
+    // to XP instead: still a meaningful, exciting reward (contributes to level,
+    // streak flavor, leaderboard rank) but never becomes real money. Do not
+    // reintroduce an addLedgerEntry(..., 'ROULETTE_SPIN', ...) call here without a
+    // legal review — see tos_compliance_audit.md / playstore_tos_audit_report.md.
+    const prizeValue = selectedSlice.rewardCoins;
 
-    // Add ledger entry
-    try {
-      await addLedgerEntry(userId, coinsWon, 'ROULETTE_SPIN', clientIp, spinSessionId, deviceId);
-      
-      // Log to analytics history
-      await prisma.rouletteSpinHistory.create({
-        data: {
-          userId,
-          rouletteItemId: selectedSlice.id,
-          coinsAwarded: coinsWon,
-          spinType: rouletteSpinsToday >= rouletteDailyChances ? 'AD_REWARD' : 'FREE'
-        }
-      });
-    } catch (e: any) {
-      if (e.code === 'P2002') {
-        res.json({ message: 'Already spun for this session', coinsEarned: 0 });
-        return;
-      }
-      throw e;
-    }
+    // Log the spin. This no longer needs strict cross-request idempotency —
+    // since a spin can't mint cash anymore, the worst case of a duplicate
+    // request is a small extra XP grant (further bounded by chancesRemaining
+    // being recomputed from a fresh count on every call), not a financial
+    // double-spend, so a plain insert is sufficient.
+    await prisma.rouletteSpinHistory.create({
+      data: {
+        userId,
+        rouletteItemId: selectedSlice.id,
+        coinsAwarded: 0,
+        spinType: rouletteSpinsToday >= rouletteDailyChances ? 'AD_REWARD' : 'FREE',
+      },
+    });
 
-    // Update user stats
-    const xpRatio = Math.max(1, await getConfigInt('xp_per_coin_ratio', 2));
-    const xpGained = Math.floor(coinsWon / xpRatio);
+    // The slice's configured "prize value" becomes XP 1:1 — no coin/cash path.
+    const xpGained = Math.max(0, Math.floor(prizeValue));
     if (xpGained > 0) {
       await addExp(userId, xpGained);
     }
 
-    if (coinsWon > 0) {
-      await prisma.user.update({
-        where: { id: userId },
-        data: { totalCoinsEarned: { increment: coinsWon } },
-      }).catch(() => undefined);
-    }
-
     res.json({
       success: true,
-      coinsEarned: coinsWon,
+      coinsEarned: 0,
+      xpGained,
       sliceIndex,
       sliceName: selectedSlice.label,
       chancesRemaining: chancesRemaining - 1,
-      xpGained
     });
   } catch (error: any) {
     sendServerError(res, error);

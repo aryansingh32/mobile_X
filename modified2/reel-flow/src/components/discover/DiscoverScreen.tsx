@@ -321,7 +321,7 @@ export const DiscoverScreen: React.FC = () => {
           if (currentAdCardId.current) watchedAdIds.current.add(currentAdCardId.current);
         } else {
           triggerHaptic('error');
-          Alert.alert('Reward cancelled', 'Watch the full video without switching apps to earn coins.');
+          Alert.alert('Reward cancelled', 'Watch the full video without switching apps to earn VIB.');
         }
       },
     );

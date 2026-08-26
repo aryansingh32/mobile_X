@@ -15,7 +15,7 @@ const STEPS = [
   'Share your referral code with a friend',
   'Friend signs up using your code',
   'Friend completes their first missions',
-  'You both earn coins',
+  'You both earn VIB',
 ];
 
 export const ReferEarnScreen = ({ onBack }: { onBack: () => void }) => {
@@ -52,7 +52,7 @@ export const ReferEarnScreen = ({ onBack }: { onBack: () => void }) => {
         <View style={styles.heroCard}>
           <Users size={28} color={COLORS.yellow} />
           <Text style={styles.heroTitle}>Invite Your Friends</Text>
-          <Text style={styles.heroSubtitle}>Invite friends and earn coins together</Text>
+          <Text style={styles.heroSubtitle}>Invite friends and earn VIB together</Text>
         </View>
 
         <View style={styles.codeCard}>

@@ -333,7 +333,7 @@ export function ShortsFeed({ startVideoId, onVideoStarted, onBack }: { startVide
         }
       } else {
         triggerHaptic('error');
-        Alert.alert('Reward cancelled', 'Watch the full video without switching apps to earn coins.');
+        Alert.alert('Reward cancelled', 'Watch the full video without switching apps to earn VIB.');
       }
     });
 
@@ -409,7 +409,7 @@ export function ShortsFeed({ startVideoId, onVideoStarted, onBack }: { startVide
         }
       } else {
         triggerHaptic('error');
-        Alert.alert('Reward cancelled', 'Watch the full video without switching apps to earn coins.');
+        Alert.alert('Reward cancelled', 'Watch the full video without switching apps to earn VIB.');
       }
     });
 

@@ -27,15 +27,15 @@ const FAQS = [
   },
   {
     question: 'How do I redeem rewards?',
-    answer: 'Open Wallet, pick a voucher from the Redeem tab, and confirm — coins are deducted immediately and your voucher or cashback request is queued for processing.',
+    answer: 'Open Wallet, pick a voucher from the Redeem tab, and confirm — VIB is deducted immediately and your voucher or cashback request is queued for processing.',
   },
   {
     question: 'Why hasn\u2019t my withdrawal arrived yet?',
     answer: 'Most payouts process within 24\u201372 hours. If it has been longer, check the status in Wallet > History, and contact support below with your transaction ID.',
   },
   {
-    question: 'Why didn\u2019t I get coins for a video?',
-    answer: 'Only ad placements pay coins. Passive video/article viewing (Shorts, Discover news cards) is not rewarded — this is by design, to prevent reward fraud.',
+    question: 'Why didn\u2019t I get VIB for a video?',
+    answer: 'Only ad placements pay VIB. Passive video/article viewing (Shorts, Discover news cards) is not rewarded — this is by design, to prevent reward fraud.',
   },
 ];
 
