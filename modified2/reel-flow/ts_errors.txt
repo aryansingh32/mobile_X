@@ -1,0 +1,21 @@
+src/components/discover/DiscoverCard.tsx(6,25): error TS2307: Cannot find module './VIBIcon' or its corresponding type declarations.
+src/components/onboarding/TabTooltip.tsx(4,25): error TS2307: Cannot find module './VIBIcon' or its corresponding type declarations.
+src/components/ui/CoinRain.tsx(67,9): error TS2769: No overload matches this call.
+  Overload 1 of 2, '(props: ViewProps): View', gave the following error.
+    Type 'void[]' is not assignable to type 'ReactNode'.
+      Type 'void[]' is not assignable to type 'Iterable<ReactNode>'.
+        The types returned by '[Symbol.iterator]().next(...)' are incompatible between these types.
+          Type 'IteratorResult<void, undefined>' is not assignable to type 'IteratorResult<ReactNode, any>'.
+            Type 'IteratorYieldResult<void>' is not assignable to type 'IteratorResult<ReactNode, any>'.
+              Type 'IteratorYieldResult<void>' is not assignable to type 'IteratorYieldResult<ReactNode>'.
+                Type 'void' is not assignable to type 'ReactNode'.
+  Overload 2 of 2, '(props: ViewProps, context: any): View', gave the following error.
+    Type 'void[]' is not assignable to type 'ReactNode'.
+      Type 'void[]' is not assignable to type 'Iterable<ReactNode>'.
+        The types returned by '[Symbol.iterator]().next(...)' are incompatible between these types.
+          Type 'IteratorResult<void, undefined>' is not assignable to type 'IteratorResult<ReactNode, any>'.
+            Type 'IteratorYieldResult<void>' is not assignable to type 'IteratorResult<ReactNode, any>'.
+              Type 'IteratorYieldResult<void>' is not assignable to type 'IteratorYieldResult<ReactNode>'.
+                Type 'void' is not assignable to type 'ReactNode'.
+src/components/ui/VIBIcon.tsx(3,39): error TS2305: Module '"expo-image"' has no exported member 'StyleProp'.
+src/screens/WalletScreen.tsx(382,37): error TS2339: Property 'confirmTextContainer' does not exist on type '{ container: { flex: number; backgroundColor: string; }; hero: { paddingHorizontal: number; paddingBottom: number; backgroundColor: string; borderBottomWidth: number; borderBottomColor: string; }; ... 62 more ...; confirmText: { ...; }; }'.

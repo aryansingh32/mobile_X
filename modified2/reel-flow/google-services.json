@@ -1,0 +1,63 @@
+{
+  "project_info": {
+    "project_number": "270018474838",
+    "project_id": "lets-watch-and-earn",
+    "storage_bucket": "lets-watch-and-earn.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:270018474838:android:ab05d3c841436115e01cf7",
+        "android_client_info": {
+          "package_name": "com.ascend.reelsapp"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "270018474838-4napn7p4t06d12m9vmespsleauqlr6mj.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.ascend.reelsapp",
+            "certificate_hash": "ac8bf1810798afe09218f23f227179731cea478e"
+          }
+        },
+        {
+          "client_id": "270018474838-k3co966c6vgn4io3gcq6lujqqledo34n.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.ascend.reelsapp",
+            "certificate_hash": "5e8f16062ea3cd2c4a0d547876baa6f38cabf625"
+          }
+        },
+        {
+          "client_id": "270018474838-npksegfm7iavd22tlktte5oln6s1tstg.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.ascend.reelsapp",
+            "certificate_hash": "2a8aa169a248f30e197aa3e7b9c2dd6c88cfe829"
+          }
+        },
+        {
+          "client_id": "270018474838-pubesd3l079iar2p6rtol3qdg5ffns0e.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAgZOME3_eYS9-3aeDIL_ZgqJ7QliaqNQU"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "270018474838-pubesd3l079iar2p6rtol3qdg5ffns0e.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
