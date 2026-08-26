@@ -71,7 +71,11 @@ export const NotificationsScreen = ({ onBack }: { onBack: () => void }) => {
         {FILTERS.map((f) => {
           const active = f.key === filter;
           return (
-            <Pressable key={f.key} onPress={() => setFilter(f.key)} style={[styles.filterChip, active && styles.filterChipActive]}>
+            <Pressable
+              key={f.key}
+              onPress={() => setFilter(f.key)}
+              style={({ pressed }) => [styles.filterChip, active && styles.filterChipActive, pressed && styles.pressedDim]}
+            >
               <Text style={[styles.filterText, active && styles.filterTextActive]}>{f.label}</Text>
             </Pressable>
           );
@@ -79,7 +83,10 @@ export const NotificationsScreen = ({ onBack }: { onBack: () => void }) => {
       </View>
 
       {error ? (
-        <Pressable style={styles.errorCard} onPress={() => setLoading(true)}>
+        <Pressable
+          style={({ pressed }) => [styles.errorCard, pressed && styles.pressedDim]}
+          onPress={() => setLoading(true)}
+        >
           <Text style={styles.errorText}>{error}. Tap to retry.</Text>
         </Pressable>
       ) : null}
@@ -103,7 +110,7 @@ export const NotificationsScreen = ({ onBack }: { onBack: () => void }) => {
             return (
               <Pressable
                 key={notification.id}
-                style={[styles.card, !notification.read && styles.cardUnread]}
+                style={({ pressed }) => [styles.card, !notification.read && styles.cardUnread, pressed && styles.pressedDim]}
                 onPress={() => readNotification(notification)}
               >
                 <View style={styles.iconCircle}>
@@ -181,6 +188,7 @@ const styles = StyleSheet.create({
   cardText: { ...TYPOGRAPHY.caption, color: COLORS.white_55, marginTop: 2 },
   cardTime: { ...TYPOGRAPHY.caption, color: COLORS.white_30, marginTop: 6, fontSize: 11 },
   unreadDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: COLORS.yellow, marginLeft: SPACING.sm, marginTop: 6 },
+  pressedDim: { opacity: 0.75 },
 });
 
 export default NotificationsScreen;

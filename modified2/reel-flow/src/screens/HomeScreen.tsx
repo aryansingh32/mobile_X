@@ -28,6 +28,7 @@ import { useAdPlacement, isAdPenalized, getAdPenaltyRemainingSeconds } from '../
 import { useAdUnitId } from '../hooks/useAdUnitId';
 import { reportAdEvent } from '../api/config';
 import { reportAdEventWithPenaltyCheck, formatAdPenaltyMessage } from '../utils/adFarmingGuard';
+import { fetchCached, invalidateCached } from '../utils/requestCache';
 import { getRouletteConfig } from '../api/rewards';
 import { getDeviceId } from '../utils/deviceSafety';
 import CoinRain from '../components/ui/CoinRain';
@@ -347,41 +348,63 @@ export const HomeScreen = ({
   const referralBody = useContent('home.referral.body', "Earn 10% of your friends' withdrawals forever!");
   const referralButton = useContent('home.referral.button', 'Share Code');
 
+  const applyLoadedData = (
+    profile: any,
+    dailyMissions: any,
+    fetchedGames: any,
+    rConf: any,
+  ) => {
+    setBalance(profile?.coins ?? 0);
+    setXp(profile?.xp ?? 0);
+    setLevel(profile?.level ?? 1);
+    setStreak(profile?.streak ?? 0);
+    setDailyStats({
+      remaining: profile?.dailyAdRemaining ?? 20,
+      cap: profile?.dailyAdCap ?? 20,
+      todayEarned: profile?.todayCoinsEarned ?? 0,
+    });
+    setStreakClaimedToday(!!profile?.streakClaimedToday);
+    setDailyBonusAvailable(!!profile?.dailyBonusAvailable);
+    setConfigValues({
+      coinToInrRate: profile?.coinToInrRate ?? profile?.config?.coin_to_inr_rate ?? 0.10,
+      minWithdrawalCoins: profile?.minWithdrawalCoins ?? profile?.config?.min_withdrawal_coins ?? 500,
+      adRewardedCoins: profile?.config?.ad_rewarded_coins,
+      adRewardedInterstitialCoins: profile?.config?.ad_rewarded_interstitial_coins,
+      adRewardedDiscoverCoins: profile?.config?.ad_rewarded_discover_coins,
+    });
+    setMissions(dailyMissions);
+    setGames(fetchedGames);
+    setRouletteChances(profile?.rouletteChancesRemaining ?? 2);
+    if (rConf?.success && Array.isArray(rConf.data) && rConf.data.length > 0) {
+      setRouletteConfig(rConf.data);
+    }
+  };
+
   const loadData = async (mounted = true) => {
     try {
       if (!mounted) return;
       setError('');
-      const [profile, dailyMissions, fetchedGames, rConf] = await Promise.all([
-        getProfile(),
-        getDailyMissions(),
-        fetchGamesFromOrigin(),
-        getRouletteConfig(),
-      ]);
+      // Stale-while-revalidate: an instant re-visit to Home (e.g. tab switch)
+      // paints last known state immediately instead of a blank shimmer, then
+      // silently refreshes in the background.
+      const [profile, dailyMissions, fetchedGames, rConf] = await fetchCached(
+        'home:dashboard',
+        () => Promise.all([
+          getProfile(),
+          getDailyMissions(),
+          fetchGamesFromOrigin(),
+          getRouletteConfig(),
+        ]),
+        {
+          ttlMs: 8_000,
+          staleMs: 2 * 60_000,
+          onStaleData: ([p, dm, fg, rc]) => {
+            if (mounted) applyLoadedData(p, dm, fg, rc);
+          },
+        },
+      );
       if (!mounted) return;
-      setBalance(profile?.coins ?? 0);
-      setXp(profile?.xp ?? 0);
-      setLevel(profile?.level ?? 1);
-      setStreak(profile?.streak ?? 0);
-      setDailyStats({
-        remaining: profile?.dailyAdRemaining ?? 20,
-        cap: profile?.dailyAdCap ?? 20,
-        todayEarned: profile?.todayCoinsEarned ?? 0,
-      });
-      setStreakClaimedToday(!!profile?.streakClaimedToday);
-      setDailyBonusAvailable(!!profile?.dailyBonusAvailable);
-      setConfigValues({
-        coinToInrRate: profile?.coinToInrRate ?? profile?.config?.coin_to_inr_rate ?? 0.10,
-        minWithdrawalCoins: profile?.minWithdrawalCoins ?? profile?.config?.min_withdrawal_coins ?? 500,
-        adRewardedCoins: profile?.config?.ad_rewarded_coins,
-        adRewardedInterstitialCoins: profile?.config?.ad_rewarded_interstitial_coins,
-        adRewardedDiscoverCoins: profile?.config?.ad_rewarded_discover_coins,
-      });
-      setMissions(dailyMissions);
-      setGames(fetchedGames);
-      setRouletteChances(profile?.rouletteChancesRemaining ?? 2);
-      if (rConf?.success && Array.isArray(rConf.data) && rConf.data.length > 0) {
-        setRouletteConfig(rConf.data);
-      }
+      applyLoadedData(profile, dailyMissions, fetchedGames, rConf);
     } catch {
       if (mounted) setError('Network issue. Please try again later.');
     } finally {
@@ -423,6 +446,7 @@ export const HomeScreen = ({
 
   const onRefresh = () => {
     setRefreshing(true);
+    invalidateCached('home:dashboard');
     loadData();
   };
 

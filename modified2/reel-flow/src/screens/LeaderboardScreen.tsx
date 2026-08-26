@@ -1,13 +1,27 @@
 import { useShallow } from 'zustand/react/shallow';
-import React, { useMemo, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import React, { useMemo, useRef, useState } from 'react';
+import { Animated, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Trophy } from 'lucide-react-native';
 import { useAppStore } from '../store/useAppStore';
-import { COLORS, RADIUS, SPACING, TYPOGRAPHY } from '../constants/theme';
+import { COLORS, MOTION, RADIUS, SPACING, TYPOGRAPHY } from '../constants/theme';
 import ScreenHeader from '../components/ui/ScreenHeader';
 import { Shimmer } from '../components/ui/Shimmer';
 import { VIBIcon } from '../components/ui/VIBIcon';
+
+// Filter chip that scales down on press (see AppButton for the reference pattern).
+const FilterChip: React.FC<{ style?: any; onPress: () => void; children: React.ReactNode }> = ({ style, onPress, children }) => {
+  const scale = useRef(new Animated.Value(1)).current;
+  const onPressIn = () => Animated.spring(scale, { toValue: MOTION.press_scale, useNativeDriver: true, ...MOTION.spring_snappy }).start();
+  const onPressOut = () => Animated.spring(scale, { toValue: 1, useNativeDriver: true, ...MOTION.spring_snappy }).start();
+  return (
+    <Animated.View style={{ transform: [{ scale }] }}>
+      <Pressable style={style} onPress={onPress} onPressIn={onPressIn} onPressOut={onPressOut}>
+        {children}
+      </Pressable>
+    </Animated.View>
+  );
+};
 
 type Period = 'week' | 'month' | 'all';
 
@@ -54,9 +68,9 @@ export const LeaderboardScreen = ({ onBack }: { onBack: () => void }) => {
         {PERIODS.map((p) => {
           const active = p.key === period;
           return (
-            <Pressable key={p.key} onPress={() => setPeriod(p.key)} style={[styles.filterChip, active && styles.filterChipActive]}>
+            <FilterChip key={p.key} onPress={() => setPeriod(p.key)} style={[styles.filterChip, active && styles.filterChipActive]}>
               <Text style={[styles.filterText, active && styles.filterTextActive]}>{p.label}</Text>
-            </Pressable>
+            </FilterChip>
           );
         })}
       </View>

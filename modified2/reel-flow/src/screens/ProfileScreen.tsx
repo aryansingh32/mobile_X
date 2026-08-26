@@ -1,6 +1,6 @@
 import { useShallow } from 'zustand/react/shallow';
-import React from 'react';
-import { Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
+import React, { useRef } from 'react';
+import { Alert, Animated, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Pressable } from 'react-native';
 import {
   Bell,
@@ -15,8 +15,22 @@ import {
 } from 'lucide-react-native';
 import { GoogleSignin } from '@react-native-google-signin/google-signin';
 import { useAppStore } from '../store/useAppStore';
-import { COLORS, RADIUS, SPACING, TYPOGRAPHY } from '../constants/theme';
+import { COLORS, MOTION, RADIUS, SPACING, TYPOGRAPHY } from '../constants/theme';
 import ScreenHeader from '../components/ui/ScreenHeader';
+
+// Small tappable list row that scales down on press (see AppButton for the reference pattern).
+const PressableScale: React.FC<{ style?: any; onPress: () => void; children: React.ReactNode; accessibilityRole?: 'button' }> = ({ style, onPress, children, accessibilityRole }) => {
+  const scale = useRef(new Animated.Value(1)).current;
+  const onPressIn = () => Animated.spring(scale, { toValue: MOTION.press_scale, useNativeDriver: true, ...MOTION.spring_snappy }).start();
+  const onPressOut = () => Animated.spring(scale, { toValue: 1, useNativeDriver: true, ...MOTION.spring_snappy }).start();
+  return (
+    <Animated.View style={{ transform: [{ scale }] }}>
+      <Pressable style={style} onPress={onPress} onPressIn={onPressIn} onPressOut={onPressOut} accessibilityRole={accessibilityRole}>
+        {children}
+      </Pressable>
+    </Animated.View>
+  );
+};
 
 export type ProfileDestination = 'referEarn' | 'notifications' | 'help' | 'settings' | 'leaderboard' | 'achievements';
 
@@ -77,7 +91,7 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({ onBack, onNavigate
 
         <View style={styles.menuCard}>
           {menuRows.map((row, index) => (
-            <Pressable
+            <PressableScale
               key={row.label}
               style={[styles.menuRow, index === menuRows.length - 1 && styles.menuRowLast]}
               onPress={row.onPress}
@@ -88,14 +102,14 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({ onBack, onNavigate
                 <Text style={styles.menuRowLabel}>{row.label}</Text>
               </View>
               <ChevronRight size={18} color={COLORS.white_30} />
-            </Pressable>
+            </PressableScale>
           ))}
         </View>
 
-        <Pressable style={styles.signOutButton} onPress={confirmSignOut}>
+        <PressableScale style={styles.signOutButton} onPress={confirmSignOut}>
           <LogOut size={18} color={COLORS.red} />
           <Text style={styles.signOutText}>Sign Out</Text>
-        </Pressable>
+        </PressableScale>
 
         <View style={{ height: 40 }} />
       </ScrollView>

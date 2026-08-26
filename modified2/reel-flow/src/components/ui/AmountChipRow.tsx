@@ -23,7 +23,7 @@ export const AmountChipRow: React.FC<AmountChipRowProps> = ({ options, selected,
           <Pressable
             key={value}
             onPress={() => onSelect(value)}
-            style={[styles.chip, isActive && styles.chipActive]}
+            style={({ pressed }) => [styles.chip, isActive && styles.chipActive, pressed && styles.pressedDim]}
             accessibilityRole="button"
             accessibilityState={{ selected: isActive }}
           >
@@ -60,6 +60,9 @@ const styles = StyleSheet.create({
   chipTextActive: {
     color: '#111111',
     fontWeight: '800',
+  },
+  pressedDim: {
+    opacity: 0.75,
   },
 });
 

@@ -1,10 +1,24 @@
-import React, { useState } from 'react';
-import { Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import React, { useRef, useState } from 'react';
+import { Animated, Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { ChevronDown, HelpCircle } from 'lucide-react-native';
-import { COLORS, RADIUS, SPACING, TYPOGRAPHY } from '../constants/theme';
+import { COLORS, MOTION, RADIUS, SPACING, TYPOGRAPHY } from '../constants/theme';
 import ScreenHeader from '../components/ui/ScreenHeader';
 import AppButton from '../components/ui/AppButton';
 import { useToast } from '../components/ui/Toast';
+
+// FAQ card that scales down on press (see AppButton for the reference pattern).
+const FaqCard: React.FC<{ onPress: () => void; children: React.ReactNode }> = ({ onPress, children }) => {
+  const scale = useRef(new Animated.Value(1)).current;
+  const onPressIn = () => Animated.spring(scale, { toValue: MOTION.press_scale, useNativeDriver: true, ...MOTION.spring_snappy }).start();
+  const onPressOut = () => Animated.spring(scale, { toValue: 1, useNativeDriver: true, ...MOTION.spring_snappy }).start();
+  return (
+    <Animated.View style={{ transform: [{ scale }] }}>
+      <Pressable style={styles.card} onPress={onPress} onPressIn={onPressIn} onPressOut={onPressOut}>
+        {children}
+      </Pressable>
+    </Animated.View>
+  );
+};
 
 const FAQS = [
   {
@@ -41,9 +55,8 @@ export const HelpSupportScreen = ({ onBack }: { onBack: () => void }) => {
         {FAQS.map((faq, index) => {
           const isOpen = openIndex === index;
           return (
-            <Pressable
+            <FaqCard
               key={faq.question}
-              style={styles.card}
               onPress={() => setOpenIndex(isOpen ? null : index)}
             >
               <View style={styles.cardHeader}>
@@ -55,7 +68,7 @@ export const HelpSupportScreen = ({ onBack }: { onBack: () => void }) => {
                 />
               </View>
               {isOpen ? <Text style={styles.cardAnswer}>{faq.answer}</Text> : null}
-            </Pressable>
+            </FaqCard>
           );
         })}
 

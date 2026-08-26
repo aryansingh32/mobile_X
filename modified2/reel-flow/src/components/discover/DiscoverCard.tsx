@@ -1,9 +1,11 @@
 import React, { useRef } from 'react';
-import { View, Text, StyleSheet, Image, Pressable, Dimensions, Animated, Linking, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, Pressable, Dimensions, Animated, Linking, ActivityIndicator } from 'react-native';
+import { Image } from 'expo-image';
 import { DiscoverCardData } from '../../data/discoverMock';
 import { ShatterWrapper } from '../ui/ShatterWrapper';
 import { LinearGradient } from 'expo-linear-gradient';
 import { VIBIcon } from '../ui/VIBIcon';
+import { MOTION } from '../../constants/theme';
 
 export interface CardLayout {
   x: number;
@@ -30,6 +32,8 @@ export const ITEM_SIZE = CARD_HEIGHT + ITEM_SPACING;
 
 export const DiscoverCard: React.FC<Props> = ({ data, index, scrollY, onPress, isLoading, isShattered, onShatterComplete }) => {
   const containerRef = useRef<View>(null);
+  const adCtaScale = useRef(new Animated.Value(1)).current;
+  const footerScale = useRef(new Animated.Value(1)).current;
   const [adButtonActive, setAdButtonActive] = React.useState(false);
   const [imageLoaded, setImageLoaded] = React.useState(false);
   const imageShimmerAnim = React.useRef(new Animated.Value(0)).current;
@@ -96,10 +100,10 @@ export const DiscoverCard: React.FC<Props> = ({ data, index, scrollY, onPress, i
       { height: CARD_HEIGHT, width: CARD_WIDTH, alignSelf: 'center', marginBottom: ITEM_SPACING, transform: [{ scale }], opacity },
       {
         shadowColor: data.bgColor,
-        shadowOffset: { width: 15, height: 15 },
-        shadowOpacity: 0.8,
-        shadowRadius: 30,
-        elevation: 30, // Much higher elevation for Android to increase the blur spread
+        shadowOffset: { width: 8, height: 8 },
+        shadowOpacity: 0.55,
+        shadowRadius: 16,
+        elevation: 10, // Was 30 — that forced an oversized offscreen shadow buffer per card, per frame, for every visible card in the feed
       }
     ]}>
       <ShatterWrapper
@@ -109,9 +113,14 @@ export const DiscoverCard: React.FC<Props> = ({ data, index, scrollY, onPress, i
         height={CARD_HEIGHT}
         glassColor={data.bgColor || '#1A1A2E'}
       >
-        <Pressable 
-          ref={containerRef as any} 
-          style={[styles.container, { backgroundColor: data.bgColor || (data.isAd ? '#1A1A2E' : '#2A2A2A') }, data.isAd && styles.adContainer]} 
+        <Pressable
+          ref={containerRef as any}
+          style={({ pressed }) => [
+            styles.container,
+            { backgroundColor: data.bgColor || (data.isAd ? '#1A1A2E' : '#2A2A2A') },
+            data.isAd && styles.adContainer,
+            pressed && !data.isAd && { opacity: 0.75 },
+          ]}
           onPress={data.isAd ? undefined : handlePress}
         >
         {data.isAd ? (
@@ -144,20 +153,24 @@ export const DiscoverCard: React.FC<Props> = ({ data, index, scrollY, onPress, i
               </View>
             </View>
             
-            <Pressable 
-              style={[styles.adCtaButton, (!adButtonActive || isLoading) && styles.adCtaButtonDisabled]}
-              disabled={!adButtonActive || isLoading}
-              onPress={() => onPress(data, { x: 0, y: 0, width: 0, height: 0 })}
-            >
-              {isLoading ? (
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                  <ActivityIndicator size="small" color="#FFD700" />
-                  <Text style={[styles.adCtaText, { color: '#FFD700' }]}>Loading Ad...</Text>
-                </View>
-              ) : (
-                <Text style={styles.adCtaText}>{adButtonActive ? 'Watch Video →' : 'Wait...'}</Text>
-              )}
-            </Pressable>
+            <Animated.View style={{ marginTop: 'auto', transform: [{ scale: adCtaScale }] }}>
+              <Pressable
+                style={[styles.adCtaButton, (!adButtonActive || isLoading) && styles.adCtaButtonDisabled]}
+                disabled={!adButtonActive || isLoading}
+                onPressIn={() => Animated.spring(adCtaScale, { toValue: MOTION.press_scale, useNativeDriver: true, ...MOTION.spring_snappy }).start()}
+                onPressOut={() => Animated.spring(adCtaScale, { toValue: 1, useNativeDriver: true, ...MOTION.spring_snappy }).start()}
+                onPress={() => onPress(data, { x: 0, y: 0, width: 0, height: 0 })}
+              >
+                {isLoading ? (
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                    <ActivityIndicator size="small" color="#FFD700" />
+                    <Text style={[styles.adCtaText, { color: '#FFD700' }]}>Loading Ad...</Text>
+                  </View>
+                ) : (
+                  <Text style={styles.adCtaText}>{adButtonActive ? 'Watch Video →' : 'Wait...'}</Text>
+                )}
+              </Pressable>
+            </Animated.View>
           </View>
         ) : (
           <>
@@ -166,8 +179,12 @@ export const DiscoverCard: React.FC<Props> = ({ data, index, scrollY, onPress, i
               {data.imageUri && !data.imageUri.includes('placeholder.com') ? (
                 <>
                   <Image
-                    source={{ uri: data.imageUri, cache: 'force-cache' }}
+                    source={{ uri: data.imageUri }}
                     style={styles.image}
+                    contentFit="cover"
+                    cachePolicy="memory-disk"
+                    priority="normal"
+                    transition={200}
                     onLoad={() => setImageLoaded(true)}
                     onError={() => setImageLoaded(true)} // Treat error as loaded to stop shimmer
                   />
@@ -200,17 +217,21 @@ export const DiscoverCard: React.FC<Props> = ({ data, index, scrollY, onPress, i
                 <Text style={styles.title} numberOfLines={2}>{data.title}</Text>
                 <Text style={styles.description} numberOfLines={3}>{data.description}</Text>
               </View>
-              <Pressable 
-                style={styles.footer}
-                onPress={() => {
-                  if (data.sourceUrl) {
-                    Linking.openURL(data.sourceUrl).catch(err => console.error("Failed to open source URL", err));
-                  }
-                }}
-              >
-                <Image source={{ uri: data.authorAvatar }} style={styles.avatar} />
-                <Text style={styles.username}>{data.authorUsername}</Text>
-              </Pressable>
+              <Animated.View style={{ transform: [{ scale: footerScale }] }}>
+                <Pressable
+                  style={styles.footer}
+                  onPressIn={() => Animated.spring(footerScale, { toValue: MOTION.press_scale, useNativeDriver: true, ...MOTION.spring_snappy }).start()}
+                  onPressOut={() => Animated.spring(footerScale, { toValue: 1, useNativeDriver: true, ...MOTION.spring_snappy }).start()}
+                  onPress={() => {
+                    if (data.sourceUrl) {
+                      Linking.openURL(data.sourceUrl).catch(err => console.error("Failed to open source URL", err));
+                    }
+                  }}
+                >
+                  <Image source={{ uri: data.authorAvatar }} style={styles.avatar} cachePolicy="memory-disk" />
+                  <Text style={styles.username}>{data.authorUsername}</Text>
+                </Pressable>
+              </Animated.View>
             </View>
           </>
         )}
@@ -238,7 +259,6 @@ const styles = StyleSheet.create({
   image: {
     width: '100%',
     height: '100%',
-    resizeMode: 'cover',
     borderRadius: 12, // Round inner image corners
   },
   noImagePlaceholder: {

@@ -1,10 +1,14 @@
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useShallow } from 'zustand/react/shallow';
 import React, { useEffect, useMemo, useState, useRef } from 'react';
-import { ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View, KeyboardAvoidingView, Platform, Image } from 'react-native';
+import { ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View, KeyboardAvoidingView, Platform } from 'react-native';
+import { Image } from 'expo-image';
 import { useAppStore } from '../store/useAppStore';
+import { useConfigStore } from '../store/useConfigStore';
 import AnimatedProgressBar from '../components/ui/AnimatedProgressBar';
 import CoinCounter from '../components/ui/CoinCounter';
+import RewardCard from '../components/ui/RewardCard';
+import CoinRain from '../components/ui/CoinRain';
 import { getCatalog, getHistory, getSuggestions, postSuggestion, requestWithdrawal, getMyWithdrawals } from '../api/wallet';
 import { getProfile } from '../api/user';
 import { Coins, Gift, IndianRupee, Send, ShoppingBag, BadgeInfo, ArrowRight } from 'lucide-react-native';
@@ -12,6 +16,13 @@ import { useContent } from '../hooks/useContent';
 import RedemptionSuccessScreen from './RedemptionSuccessScreen';
 import { useToast } from '../components/ui/Toast';
 import { VIBIcon } from '../components/ui/VIBIcon';
+import { RewardedAd, RewardedAdEventType, AdEventType, TestIds } from 'react-native-google-mobile-ads';
+import { useAdPlacement, isAdPenalized, getAdPenaltyRemainingSeconds } from '../hooks/useAdPlacement';
+import { useAdUnitId } from '../hooks/useAdUnitId';
+import { reportAdEvent } from '../api/config';
+import { reportAdEventWithPenaltyCheck, formatAdPenaltyMessage } from '../utils/adFarmingGuard';
+import { getDeviceId } from '../utils/deviceSafety';
+import { fetchCached, invalidateCached } from '../utils/requestCache';
 
 export const WalletScreen = () => {
   const mountedRef = React.useRef(true);
@@ -23,7 +34,25 @@ export const WalletScreen = () => {
     coinToInrRate,
     minWithdrawalCoins,
     setConfigValues,
-  } = useAppStore(useShallow(s => ({ coinBalance: s.coinBalance, setBalance: s.setBalance, coinToInrRate: s.coinToInrRate, minWithdrawalCoins: s.minWithdrawalCoins, setConfigValues: s.setConfigValues })));
+    isAdPlaying,
+    setAdPlaying,
+    canWatchAd,
+    incrementAdCount,
+    updateBalance,
+    trackEvent,
+  } = useAppStore(useShallow(s => ({
+    coinBalance: s.coinBalance,
+    setBalance: s.setBalance,
+    coinToInrRate: s.coinToInrRate,
+    minWithdrawalCoins: s.minWithdrawalCoins,
+    setConfigValues: s.setConfigValues,
+    isAdPlaying: s.isAdPlaying,
+    setAdPlaying: s.setAdPlaying,
+    canWatchAd: s.canWatchAd,
+    incrementAdCount: s.incrementAdCount,
+    updateBalance: s.updateBalance,
+    trackEvent: s.trackEvent,
+  })));
 
   const [activeTab, setActiveTab] = useState<'catalog' | 'rewards' | 'history' | 'suggest'>('catalog');
   const [loading, setLoading] = useState(true);
@@ -46,8 +75,157 @@ export const WalletScreen = () => {
   const walletBalanceLabel = useContent('wallet.balance_label', 'Wallet balance');
   const walletRedeemTitle = useContent('wallet.redeem_title', 'Redeem Your VIB');
 
-  const refreshWalletProfile = async () => {
-    const profile = await getProfile();
+  // ── Rewarded-ad CTA ("Watch ad to earn coins") ──────────────────────────
+  // Mirrors the preload/trigger pattern used by ShortsFeed's rewarded card
+  // and HomeScreen's triggerHomeRewardedAd — same hooks, same ad-farming
+  // guards (isAdPenalized/canWatchAd), same SSV-backed reward grant flow.
+  const rewardedCoinAmount = useConfigStore(s => s.adRewardRules?.['REWARDED']?.coinsAwarded ?? 100);
+  const walletAdCooldownSeconds = useConfigStore(s => s.adRewardRules?.['REWARDED']?.cooldownSeconds ?? 45);
+  const { config: walletRewardPlacement } = useAdPlacement('wallet_rewarded_card');
+  const walletRewardAdUnitId = useAdUnitId(walletRewardPlacement?.adUnitKey ?? 'REWARDED', TestIds.REWARDED);
+
+  const [deviceId, setDeviceId] = useState<string | null>(null);
+  const [isWalletAdLoading, setIsWalletAdLoading] = useState(false);
+  const [walletAdClaimed, setWalletAdClaimed] = useState(false);
+  const [coinRain, setCoinRain] = useState({ visible: false, amount: 0 });
+  const preloadedWalletAdRef = useRef<any>(null);
+  const preloadedWalletAdReadyRef = useRef(false);
+  const walletAdCooldownTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    getDeviceId().then(setDeviceId).catch(() => {});
+    return () => {
+      if (walletAdCooldownTimerRef.current) clearTimeout(walletAdCooldownTimerRef.current);
+    };
+  }, []);
+
+  const preloadWalletRewardedAd = () => {
+    if (!walletRewardAdUnitId || !deviceId) return;
+    preloadedWalletAdReadyRef.current = false;
+    const ad = RewardedAd.createForAdRequest(walletRewardAdUnitId, {
+      requestNonPersonalizedAdsOnly: true,
+      serverSideVerificationOptions: {
+        customData: `${useAppStore.getState().user?.id || 0}:${deviceId || 'null'}:REWARDED`
+      }
+    });
+    const unsub = ad.addAdEventListener(RewardedAdEventType.LOADED, () => {
+      preloadedWalletAdRef.current = ad;
+      preloadedWalletAdReadyRef.current = true;
+      unsub();
+    });
+    ad.load();
+  };
+
+  useEffect(() => {
+    if (deviceId && walletRewardAdUnitId) preloadWalletRewardedAd();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [deviceId, walletRewardAdUnitId]);
+
+  const triggerWalletRewardedAd = () => {
+    if (isAdPenalized()) {
+      showToast(formatAdPenaltyMessage(getAdPenaltyRemainingSeconds()), 'info');
+      return;
+    }
+    if (!walletRewardAdUnitId) {
+      showToast('Ad not available, try again later.', 'info');
+      return;
+    }
+    if (!canWatchAd()) {
+      showToast("You've reached your daily ad limit. Come back tomorrow!", 'info');
+      return;
+    }
+    if (isAdPlaying || isWalletAdLoading) return;
+
+    setIsWalletAdLoading(true);
+    setAdPlaying(true);
+    const sessionId = `wallet-reward-${Date.now()}`;
+    reportAdEvent({
+      placementKey: 'wallet_rewarded_card',
+      adType: 'REWARDED',
+      eventType: 'REQUESTED',
+      screen: 'WALLET',
+      sessionId,
+    });
+
+    const ad =
+      preloadedWalletAdReadyRef.current && preloadedWalletAdRef.current
+        ? preloadedWalletAdRef.current
+        : RewardedAd.createForAdRequest(walletRewardAdUnitId, {
+            requestNonPersonalizedAdsOnly: true,
+            serverSideVerificationOptions: {
+              customData: `${useAppStore.getState().user?.id || 0}:${deviceId || 'null'}:REWARDED`
+            }
+          });
+    const wasPreloaded = preloadedWalletAdReadyRef.current;
+    preloadedWalletAdRef.current = null;
+    preloadedWalletAdReadyRef.current = false;
+
+    const showAd = () => {
+      reportAdEvent({
+        placementKey: 'wallet_rewarded_card',
+        adType: 'REWARDED',
+        eventType: 'LOADED',
+        screen: 'WALLET',
+        sessionId,
+      });
+      setIsWalletAdLoading(false);
+      ad.show();
+    };
+
+    const u1 = ad.addAdEventListener(RewardedAdEventType.LOADED, showAd);
+    const u2 = ad.addAdEventListener(RewardedAdEventType.EARNED_REWARD, async () => {
+      // SSV handles the authoritative DB update; optimistic UI update here.
+      updateBalance(rewardedCoinAmount);
+      incrementAdCount();
+      trackEvent('AD_WATCHED', 1);
+      // Balance changed server-side (pending SSV) — don't serve a stale cached
+      // profile the next time this screen (re)fetches it.
+      invalidateCached('wallet:profile');
+      setCoinRain({ visible: true, amount: rewardedCoinAmount });
+      setWalletAdClaimed(true);
+      if (walletAdCooldownTimerRef.current) clearTimeout(walletAdCooldownTimerRef.current);
+      walletAdCooldownTimerRef.current = setTimeout(() => setWalletAdClaimed(false), walletAdCooldownSeconds * 1000);
+      reportAdEvent({
+        placementKey: 'wallet_rewarded_card',
+        adType: 'REWARDED',
+        eventType: 'EARNED_REWARD',
+        screen: 'WALLET',
+        sessionId,
+      });
+    });
+    const u3 = ad.addAdEventListener(AdEventType.CLOSED, () => {
+      reportAdEventWithPenaltyCheck({
+        placementKey: 'wallet_rewarded_card',
+        adType: 'REWARDED',
+        eventType: 'DISMISSED',
+        screen: 'WALLET',
+        sessionId,
+      });
+      setAdPlaying(false);
+      setIsWalletAdLoading(false);
+      u1(); u2(); u3();
+      preloadWalletRewardedAd();
+    });
+    const u4 = ad.addAdEventListener(AdEventType.ERROR, (error: any) => {
+      reportAdEvent({
+        placementKey: 'wallet_rewarded_card',
+        adType: 'REWARDED',
+        eventType: 'FAILED_TO_LOAD',
+        screen: 'WALLET',
+        sessionId,
+        errorCode: error?.message,
+      });
+      setAdPlaying(false);
+      setIsWalletAdLoading(false);
+      showToast('Ad not available right now. Try again later.', 'info');
+      u1(); u2(); u3(); u4();
+      preloadWalletRewardedAd();
+    });
+
+    if (wasPreloaded) { showAd(); } else { ad.load(); }
+  };
+
+  const applyProfile = (profile: any) => {
     setBalance(profile?.coins ?? coinBalance);
     setConfigValues({
       coinToInrRate: profile?.coinToInrRate ?? profile?.config?.coin_to_inr_rate ?? coinToInrRate,
@@ -58,24 +236,54 @@ export const WalletScreen = () => {
     });
   };
 
+  const refreshWalletProfile = async () => {
+    const profile = await fetchCached('wallet:profile', () => getProfile(), {
+      ttlMs: 10_000,
+      onStaleData: (p) => { if (mountedRef.current) applyProfile(p); },
+    });
+    if (mountedRef.current) applyProfile(profile);
+  };
+
+  // Profile and per-tab data have no dependency on each other — fetch both
+  // concurrently instead of waterfalling (was: await profile, then await
+  // tab data, doubling latency on every tab switch). Promise.allSettled so
+  // one failing doesn't block the other from rendering.
   const loadData = async (mounted = true) => {
     try {
       if (!mounted) return;
       setError('');
-      await refreshWalletProfile();
-      if (!mounted) return;
+
+      const profilePromise = fetchCached('wallet:profile', () => getProfile(), {
+        ttlMs: 10_000,
+        onStaleData: (p) => { if (mounted && mountedRef.current) applyProfile(p); },
+      }).then((p) => { if (mounted && mountedRef.current) applyProfile(p); });
+
+      let tabPromise: Promise<void>;
       if (activeTab === 'catalog') {
-        const res = await getCatalog();
-        if (mounted) setCatalog(res || []);
+        tabPromise = fetchCached('wallet:catalog', () => getCatalog(), {
+          ttlMs: 15_000,
+          onStaleData: (data) => { if (mounted && mountedRef.current) setCatalog(data || []); },
+        }).then((res) => { if (mounted && mountedRef.current) setCatalog(res || []); });
       } else if (activeTab === 'suggest') {
-        const res = await getSuggestions();
-        if (mounted) setSuggestions(res || []);
+        tabPromise = fetchCached('wallet:suggestions', () => getSuggestions(), {
+          ttlMs: 15_000,
+          onStaleData: (data) => { if (mounted && mountedRef.current) setSuggestions(data || []); },
+        }).then((res) => { if (mounted && mountedRef.current) setSuggestions(res || []); });
       } else if (activeTab === 'rewards') {
-        const res = await getMyWithdrawals();
-        if (mounted) setRewards(res.data || []);
+        tabPromise = fetchCached('wallet:withdrawals', () => getMyWithdrawals(), {
+          ttlMs: 10_000,
+          onStaleData: (data) => { if (mounted && mountedRef.current) setRewards(data?.data || []); },
+        }).then((res) => { if (mounted && mountedRef.current) setRewards(res?.data || []); });
       } else {
-        const res = await getHistory();
-        if (mounted) setHistory(res.data || []);
+        tabPromise = fetchCached('wallet:history', () => getHistory(), {
+          ttlMs: 10_000,
+          onStaleData: (data) => { if (mounted && mountedRef.current) setHistory(data?.data || []); },
+        }).then((res) => { if (mounted && mountedRef.current) setHistory(res?.data || []); });
+      }
+
+      const results = await Promise.allSettled([profilePromise, tabPromise]);
+      if (mounted && results.some(r => r.status === 'rejected')) {
+        setError('Could not load wallet data.');
       }
     } catch (err) {
       console.error('Failed to load wallet data', err);
@@ -117,6 +325,12 @@ export const WalletScreen = () => {
         deliveryAddress: isPhysical ? deliveryAddress.trim() : undefined,
         mobileNumber: isPhysical ? mobileNumber.trim() : undefined,
       });
+      // Balance, catalog stock, and the rewards list are all now stale on
+      // the server — invalidate so the next fetch of each isn't served
+      // pre-redemption cached data.
+      invalidateCached('wallet:profile');
+      invalidateCached('wallet:catalog');
+      invalidateCached('wallet:withdrawals');
       await refreshWalletProfile();
       const itemName = selectedItem.name;
       const coinsSpent = selectedItem.coinCost;
@@ -148,6 +362,7 @@ export const WalletScreen = () => {
     try {
       await postSuggestion(suggestionText);
       setSuggestionText('');
+      invalidateCached('wallet:suggestions');
       loadData();
     } catch (err) {
       console.error('Failed to suggest', err);
@@ -199,6 +414,17 @@ export const WalletScreen = () => {
             <AnimatedProgressBar progress={walletProgress} height={8} showPercentage />
           </View>
         </View>
+
+        {walletRewardAdUnitId ? (
+          <View style={{ marginTop: 14 }}>
+            <RewardCard
+              coins={rewardedCoinAmount}
+              onWatch={triggerWalletRewardedAd}
+              claimed={walletAdClaimed}
+              duration={isWalletAdLoading ? 'Loading ad…' : '~30 seconds'}
+            />
+          </View>
+        ) : null}
       </View>
 
       {renderTabs()}
@@ -230,7 +456,14 @@ export const WalletScreen = () => {
                         {item.type === 'UPI' ? <IndianRupee size={16} color="#FFF" /> : <Gift size={16} color="#FFF" />}
                       </View>
                       {item.imageUrl ? (
-                        <Image source={{ uri: item.imageUrl }} style={styles.itemImage} resizeMode="cover" />
+                        <Image
+                          source={{ uri: item.imageUrl }}
+                          style={styles.itemImage}
+                          contentFit="cover"
+                          cachePolicy="memory-disk"
+                          transition={200}
+                          priority="low"
+                        />
                       ) : (
                         <View style={styles.itemImagePlaceholder}>
                           <ShoppingBag size={28} color="rgba(255,255,255,0.2)" />
@@ -264,7 +497,14 @@ export const WalletScreen = () => {
             ) : rewards.map(entry => (
               <View key={entry.id} style={styles.historyCard}>
                 {entry.catalogItem?.imageUrl ? (
-                  <Image source={{ uri: entry.catalogItem.imageUrl }} style={{ width: 40, height: 40, borderRadius: 8, marginRight: 12 }} />
+                  <Image
+                    source={{ uri: entry.catalogItem.imageUrl }}
+                    style={{ width: 40, height: 40, borderRadius: 8, marginRight: 12 }}
+                    contentFit="cover"
+                    cachePolicy="memory-disk"
+                    transition={200}
+                    priority="low"
+                  />
                 ) : (
                   <View style={{ width: 40, height: 40, borderRadius: 8, backgroundColor: '#1E1E1E', marginRight: 12, alignItems: 'center', justifyContent: 'center' }}>
                     <Gift size={20} color="rgba(255,255,255,0.4)" />
@@ -401,6 +641,12 @@ export const WalletScreen = () => {
           onDone={() => setSuccessInfo(null)}
         />
       ) : null}
+
+      <CoinRain
+        visible={coinRain.visible}
+        amount={coinRain.amount}
+        onComplete={() => setCoinRain({ visible: false, amount: 0 })}
+      />
     </KeyboardAvoidingView>
   );
 };

@@ -1,6 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
+import compression from 'compression';
 import morgan from 'morgan';
 import dotenv from 'dotenv';
 import promBundle from 'express-prom-bundle';
@@ -56,6 +57,7 @@ app.use(cors({
   credentials: true,
 }));
 app.use(helmet());
+app.use(compression()); // Gzip JSON responses — shorts/news/config payloads were going over the wire uncompressed
 app.use(hpp()); // Protect against HTTP Parameter Pollution attacks
 
 app.use(morgan('combined', { stream: { write: message => logger.info(message.trim()) } }));

@@ -1,6 +1,6 @@
 import { useShallow } from 'zustand/react/shallow';
-import React from 'react';
-import { Alert, Linking, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
+import React, { useRef } from 'react';
+import { Alert, Animated, Linking, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 import {
   ChevronRight,
   FileText,
@@ -15,9 +15,23 @@ import {
 import { GoogleSignin } from '@react-native-google-signin/google-signin';
 import { deleteAccount } from '../api/user';
 import { useAppStore } from '../store/useAppStore';
-import { COLORS, RADIUS, SPACING, TYPOGRAPHY } from '../constants/theme';
+import { COLORS, MOTION, RADIUS, SPACING, TYPOGRAPHY } from '../constants/theme';
 import ScreenHeader from '../components/ui/ScreenHeader';
 import { useToast } from '../components/ui/Toast';
+
+// Small tappable row that scales down on press (see AppButton for the reference pattern).
+const PressableScale: React.FC<{ style?: any; onPress: () => void; children: React.ReactNode }> = ({ style, onPress, children }) => {
+  const scale = useRef(new Animated.Value(1)).current;
+  const onPressIn = () => Animated.spring(scale, { toValue: MOTION.press_scale, useNativeDriver: true, ...MOTION.spring_snappy }).start();
+  const onPressOut = () => Animated.spring(scale, { toValue: 1, useNativeDriver: true, ...MOTION.spring_snappy }).start();
+  return (
+    <Animated.View style={{ transform: [{ scale }] }}>
+      <Pressable style={style} onPress={onPress} onPressIn={onPressIn} onPressOut={onPressOut}>
+        {children}
+      </Pressable>
+    </Animated.View>
+  );
+};
 
 type SettingsScreenProps = {
   onBack: () => void;
@@ -85,13 +99,13 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ onBack, onOpenHe
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <View style={styles.card}>
           {rows.map((row, index) => (
-            <Pressable key={row.label} style={[styles.row, index === rows.length - 1 && styles.rowLast]} onPress={row.onPress}>
+            <PressableScale key={row.label} style={[styles.row, index === rows.length - 1 && styles.rowLast]} onPress={row.onPress}>
               <View style={styles.rowLeft}>
                 {row.icon}
                 <Text style={styles.rowLabel}>{row.label}</Text>
               </View>
               <ChevronRight size={18} color={COLORS.white_30} />
-            </Pressable>
+            </PressableScale>
           ))}
         </View>
 
@@ -119,10 +133,10 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ onBack, onOpenHe
           </View>
         </View>
 
-        <Pressable style={styles.dangerRow} onPress={confirmAccountDeletion}>
+        <PressableScale style={styles.dangerRow} onPress={confirmAccountDeletion}>
           <Trash2 size={16} color={COLORS.red} />
           <Text style={styles.dangerText}>Delete Account</Text>
-        </Pressable>
+        </PressableScale>
 
         <View style={{ height: 40 }} />
       </ScrollView>

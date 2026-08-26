@@ -5,6 +5,7 @@ import CryptoJS from 'crypto-js';
 
 const BASE_URL = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:5000';
 const API_CLIENT_SECRET = process.env.EXPO_PUBLIC_API_CLIENT_SECRET || 'super_secret_client_key';
+const MAX_GET_RETRIES = 2;
 
 const apiClient = axios.create({
   baseURL: BASE_URL,
@@ -51,11 +52,15 @@ apiClient.interceptors.response.use(
       useAppStore.getState().logout();
     } else if (error.response?.status === 429) {
       Alert.alert('Rate Limited', 'Too many requests. Please slow down.');
-    } else if (!error.response && originalConfig && !originalConfig._retry && originalConfig.method === 'get') {
-      // Basic retry logic for network failures (only safe for idempotent GET requests)
-      originalConfig._retry = true;
+    } else if (!error.response && originalConfig && (originalConfig._retryCount ?? 0) < MAX_GET_RETRIES && originalConfig.method === 'get') {
+      // Retry logic for network failures (only safe for idempotent GET requests).
+      // Exponential backoff with jitter so a flaky connection doesn't hammer
+      // the server with retries spaced exactly 1s apart.
+      const attempt = (originalConfig._retryCount ?? 0) + 1;
+      originalConfig._retryCount = attempt;
+      const delay = Math.min(500 * 2 ** (attempt - 1), 4000) + Math.random() * 250;
       return new Promise((resolve) => {
-        setTimeout(() => resolve(apiClient(originalConfig)), 1000);
+        setTimeout(() => resolve(apiClient(originalConfig)), delay);
       });
     }
     return Promise.reject(error);

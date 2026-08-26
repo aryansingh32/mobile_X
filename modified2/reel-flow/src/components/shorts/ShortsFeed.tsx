@@ -17,6 +17,7 @@ import { useAdUnitId } from '../../hooks/useAdUnitId';
 import { getDeviceId } from '../../utils/deviceSafety';
 import { ShatterWrapper } from '../ui/ShatterWrapper';
 import { VIBIcon } from '../ui/VIBIcon';
+import { MOTION } from '../../constants/theme';
 
 const { width: windowWidth, height: windowHeight } = Dimensions.get('window');
 
@@ -93,6 +94,16 @@ export function ShortsFeed({ startVideoId, onVideoStarted, onBack }: { startVide
   // Client-side seen video tracking — prevents same videos from reshowing this session
   const seenVideoIds = useRef<Set<string>>(new Set());
   
+  // Single shared scale value for the "Watch & Earn" opt-in CTA — only one such
+  // card is ever active/interactive at a time, so one Animated.Value suffices.
+  const optInScale = useRef(new Animated.Value(1)).current;
+  const onOptInPressIn = () => {
+    Animated.spring(optInScale, { toValue: MOTION.press_scale, useNativeDriver: true, ...MOTION.spring_snappy }).start();
+  };
+  const onOptInPressOut = () => {
+    Animated.spring(optInScale, { toValue: 1, useNativeDriver: true, ...MOTION.spring_snappy }).start();
+  };
+
   const flatListRef = useRef<FlatList<ShortData>>(null);
   const prevActiveRef = useRef(0);
   const isScrollingRef = useRef(false);
@@ -482,20 +493,24 @@ export function ShortsFeed({ startVideoId, onVideoStarted, onBack }: { startVide
           />
           {item.type === 'REWARDED_VIDEO_CARD' && isActive && (
             <View style={[StyleSheet.absoluteFill, { alignItems: 'center', justifyContent: 'flex-end', paddingBottom: 120 }]} pointerEvents="box-none">
-              <Pressable 
-                style={[styles.optInButton, (uiLocked || loadingAdId === item.id) && { opacity: 0.5, backgroundColor: '#333' }]}
-                onPress={() => handleVideoOptInTrigger(item.id)}
-                disabled={uiLocked || isAdPlaying || loadingAdId === item.id}
-              >
-                {loadingAdId === item.id ? (
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                    <ActivityIndicator size="small" color="#FFD700" />
-                    <Text style={[styles.optInText, { color: '#FFD700' }]}>Loading Ad...</Text>
-                  </View>
-                ) : (
-                  <Text style={styles.optInText}>Watch & Earn {item.coins} <VIBIcon size={18} style={{ transform: [{ translateY: 3 }] }} /></Text>
-                )}
-              </Pressable>
+              <Animated.View style={{ transform: [{ scale: optInScale }] }}>
+                <Pressable
+                  style={[styles.optInButton, (uiLocked || loadingAdId === item.id) && { opacity: 0.5, backgroundColor: '#333' }]}
+                  onPress={() => handleVideoOptInTrigger(item.id)}
+                  onPressIn={onOptInPressIn}
+                  onPressOut={onOptInPressOut}
+                  disabled={uiLocked || isAdPlaying || loadingAdId === item.id}
+                >
+                  {loadingAdId === item.id ? (
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                      <ActivityIndicator size="small" color="#FFD700" />
+                      <Text style={[styles.optInText, { color: '#FFD700' }]}>Loading Ad...</Text>
+                    </View>
+                  ) : (
+                    <Text style={styles.optInText}>Watch & Earn {item.coins} <VIBIcon size={18} style={{ transform: [{ translateY: 3 }] }} /></Text>
+                  )}
+                </Pressable>
+              </Animated.View>
             </View>
           )}
         </View>
@@ -511,7 +526,10 @@ export function ShortsFeed({ startVideoId, onVideoStarted, onBack }: { startVide
         ) : items.length === 0 ? (
           <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
             <Text style={{ color: 'rgba(255,255,255,0.5)', marginBottom: 20 }}>No videos available.</Text>
-            <Pressable style={styles.optInButton} onPress={() => loadData()}>
+            <Pressable
+              style={({ pressed }) => [styles.optInButton, pressed && { opacity: 0.75 }]}
+              onPress={() => loadData()}
+            >
               <Text style={styles.optInText}>Retry</Text>
             </Pressable>
           </View>

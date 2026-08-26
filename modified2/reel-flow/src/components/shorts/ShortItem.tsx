@@ -2,11 +2,11 @@ import React, { useCallback, useRef, useState, useEffect, useMemo } from 'react'
 import {
   View,
   Text,
-  Image,
   StyleSheet,
   Pressable,
   Animated,
 } from 'react-native';
+import { Image } from 'expo-image';
 import { WebView } from 'react-native-webview';
 import {
   Heart,
@@ -74,11 +74,15 @@ function ShimmerThumbnail({ videoId }: { videoId: string }) {
 
   return (
     <View style={shimmerStyles.root}>
-      {/* Low-res thumbnail loads fast (~100ms) from YouTube CDN */}
+      {/* Low-res thumbnail loads fast (~100ms) from YouTube CDN, cached to disk
+          so re-scrolling past a seen video shows it instantly instead of refetching. */}
       <Image
         source={{ uri: `https://img.youtube.com/vi/${videoId}/mqdefault.jpg` }}
         style={StyleSheet.absoluteFill}
-        resizeMode="cover"
+        contentFit="cover"
+        cachePolicy="memory-disk"
+        priority="high"
+        transition={150}
       />
       {/* Shimmer pulse overlay */}
       <Animated.View
@@ -282,6 +286,13 @@ export const ShortItem = React.memo(function ShortItem({
     <html>
       <head>
         <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+        <!-- Open the connections the iframe API + player will need before it asks for them,
+             so DNS/TLS negotiation isn't sitting on the critical path to first frame. -->
+        <link rel="preconnect" href="https://www.youtube.com" />
+        <link rel="preconnect" href="https://i.ytimg.com" />
+        <link rel="preconnect" href="https://s.ytimg.com" crossorigin />
+        <link rel="dns-prefetch" href="https://www.youtube.com" />
+        <link rel="dns-prefetch" href="https://i.ytimg.com" />
         <style>
           body, html {
             margin: 0; padding: 0; background: #000;
@@ -425,6 +436,14 @@ export const ShortItem = React.memo(function ShortItem({
               mediaPlaybackRequiresUserAction={false}
               allowsInlineMediaPlayback={true}
               onMessage={onMessage}
+              cacheEnabled
+              cacheMode="LOAD_DEFAULT"
+              androidLayerType="hardware"
+              renderToHardwareTextureAndroid
+              decelerationRate="normal"
+              domStorageEnabled
+              startInLoadingState={false}
+              overScrollMode="never"
             />
             {/* Shimmer overlay while WebView cold-loads (active item only) */}
             {(isActive || isPreload) && !ready && (
@@ -437,7 +456,10 @@ export const ShortItem = React.memo(function ShortItem({
           <Image
             source={{ uri: `https://img.youtube.com/vi/${data.id}/mqdefault.jpg` }}
             style={StyleSheet.absoluteFill}
-            resizeMode="cover"
+            contentFit="cover"
+            cachePolicy="memory-disk"
+            priority="low"
+            transition={150}
           />
         )}
       </View>
@@ -486,7 +508,7 @@ export const ShortItem = React.memo(function ShortItem({
             <View style={styles.bottomInfo}>
               <View style={styles.authorRow}>
                 <View style={styles.avatarContainer}>
-                  <Image source={{ uri: data.avatar }} style={styles.avatar} />
+                  <Image source={{ uri: data.avatar }} style={styles.avatar} cachePolicy="memory-disk" />
                   <View style={styles.plusIcon}>
                     <Plus size={12} color="#fff" strokeWidth={3} />
                   </View>

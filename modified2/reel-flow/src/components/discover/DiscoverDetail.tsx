@@ -12,6 +12,7 @@ import { triggerHaptic } from '../../utils/haptics';
 import { useAdPlacement } from '../../hooks/useAdPlacement';
 import { useAdUnitId } from '../../hooks/useAdUnitId';
 import { NativeAdCard } from '../ads/NativeAdCard';
+import { MOTION } from '../../constants/theme';
 
 interface Props {
   data: DiscoverCardData | null;
@@ -20,6 +21,19 @@ interface Props {
 }
 
 const { width: windowWidth, height: windowHeight } = Dimensions.get('window');
+
+// Small shared press-scale helper — each call owns its own Animated.Value so
+// sibling buttons (close/share/source/read-more) animate independently.
+function usePressScale() {
+  const scale = useRef(new Animated.Value(1)).current;
+  const onPressIn = () => {
+    Animated.spring(scale, { toValue: MOTION.press_scale, useNativeDriver: true, ...MOTION.spring_snappy }).start();
+  };
+  const onPressOut = () => {
+    Animated.spring(scale, { toValue: 1, useNativeDriver: true, ...MOTION.spring_snappy }).start();
+  };
+  return { scale, onPressIn, onPressOut };
+}
 
 export const DiscoverDetail: React.FC<Props> = ({ data, layout, onClose }) => {
   const insets = useSafeAreaInsets();
@@ -30,6 +44,10 @@ export const DiscoverDetail: React.FC<Props> = ({ data, layout, onClose }) => {
   const [isVisible, setIsVisible] = useState(false);
   
   const animatedValue = useRef(new Animated.Value(0)).current;
+  const closePress = usePressScale();
+  const sharePress = usePressScale();
+  const sourcePress = usePressScale();
+  const readFullPress = usePressScale();
 
   // We keep track of rendering so the component can unmount after close animation
   useEffect(() => {
@@ -93,13 +111,27 @@ export const DiscoverDetail: React.FC<Props> = ({ data, layout, onClose }) => {
             style={StyleSheet.absoluteFill}
           />
           <View style={[styles.header, { paddingTop: insets.top || 20 }]}>
-            <Pressable style={styles.iconButton} onPress={onClose}>
-              <X color="#FFF" size={24} />
-            </Pressable>
-            <View style={styles.rightIcons}>
-              <Pressable style={styles.iconButton} onPress={handleShare}>
-                <Share2 color="#FFF" size={20} />
+            <Animated.View style={{ transform: [{ scale: closePress.scale }] }}>
+              <Pressable
+                style={styles.iconButton}
+                onPress={onClose}
+                onPressIn={closePress.onPressIn}
+                onPressOut={closePress.onPressOut}
+              >
+                <X color="#FFF" size={24} />
               </Pressable>
+            </Animated.View>
+            <View style={styles.rightIcons}>
+              <Animated.View style={{ transform: [{ scale: sharePress.scale }] }}>
+                <Pressable
+                  style={styles.iconButton}
+                  onPress={handleShare}
+                  onPressIn={sharePress.onPressIn}
+                  onPressOut={sharePress.onPressOut}
+                >
+                  <Share2 color="#FFF" size={20} />
+                </Pressable>
+              </Animated.View>
             </View>
           </View>
         </Animated.View>
@@ -120,18 +152,22 @@ export const DiscoverDetail: React.FC<Props> = ({ data, layout, onClose }) => {
             ) : null}
             
             <View style={styles.metaRow}>
-              <Pressable 
-                style={styles.sourcesPill}
-                onPress={handleOpenSource}
-              >
-                {/* Two overlapping circles simulation */}
-                <View style={styles.sourceIcons}>
-                  <View style={[styles.sourceCircle, { backgroundColor: '#FF3B30', zIndex: 2 }]} />
-                  <View style={[styles.sourceCircle, { backgroundColor: '#007AFF', marginLeft: -8, zIndex: 1 }]} />
-                </View>
-                <Text style={styles.sourcesText}>{data.authorUsername || '1 Source'}</Text>
-                <ExternalLink color="rgba(255,255,255,0.6)" size={12} style={{ marginLeft: 6 }} />
-              </Pressable>
+              <Animated.View style={{ transform: [{ scale: sourcePress.scale }] }}>
+                <Pressable
+                  style={styles.sourcesPill}
+                  onPress={handleOpenSource}
+                  onPressIn={sourcePress.onPressIn}
+                  onPressOut={sourcePress.onPressOut}
+                >
+                  {/* Two overlapping circles simulation */}
+                  <View style={styles.sourceIcons}>
+                    <View style={[styles.sourceCircle, { backgroundColor: '#FF3B30', zIndex: 2 }]} />
+                    <View style={[styles.sourceCircle, { backgroundColor: '#007AFF', marginLeft: -8, zIndex: 1 }]} />
+                  </View>
+                  <Text style={styles.sourcesText}>{data.authorUsername || '1 Source'}</Text>
+                  <ExternalLink color="rgba(255,255,255,0.6)" size={12} style={{ marginLeft: 6 }} />
+                </Pressable>
+              </Animated.View>
               
               <View style={styles.timeContainer}>
                 <Clock color="rgba(255,255,255,0.5)" size={14} style={{ marginRight: 4 }} />
@@ -157,10 +193,17 @@ export const DiscoverDetail: React.FC<Props> = ({ data, layout, onClose }) => {
 
             {/* Read Full Article Button */}
             {data.sourceUrl ? (
-              <Pressable style={styles.readFullButton} onPress={handleOpenSource}>
-                <ExternalLink color="#FFF" size={16} />
-                <Text style={styles.readFullText}>Read Full Article</Text>
-              </Pressable>
+              <Animated.View style={{ transform: [{ scale: readFullPress.scale }] }}>
+                <Pressable
+                  style={styles.readFullButton}
+                  onPress={handleOpenSource}
+                  onPressIn={readFullPress.onPressIn}
+                  onPressOut={readFullPress.onPressOut}
+                >
+                  <ExternalLink color="#FFF" size={16} />
+                  <Text style={styles.readFullText}>Read Full Article</Text>
+                </Pressable>
+              </Animated.View>
             ) : null}
 
             {!isAdPlaying ? <NativeAdCard unitId={nativeAdUnitId} /> : null}

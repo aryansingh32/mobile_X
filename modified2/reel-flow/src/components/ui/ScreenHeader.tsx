@@ -1,9 +1,9 @@
-import React from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import React, { useRef } from 'react';
+import { Animated, StyleSheet, Text, View } from 'react-native';
 import { Pressable } from 'react-native';
 import { ArrowLeft } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { COLORS, RADIUS, SPACING, TYPOGRAPHY } from '../../constants/theme';
+import { COLORS, MOTION, RADIUS, SPACING, TYPOGRAPHY } from '../../constants/theme';
 
 type ScreenHeaderProps = {
   title: string;
@@ -21,12 +21,28 @@ type ScreenHeaderProps = {
  */
 export const ScreenHeader: React.FC<ScreenHeaderProps> = ({ title, kicker, onBack, right }) => {
   const insets = useSafeAreaInsets();
+  const backScale = useRef(new Animated.Value(1)).current;
+  const onBackPressIn = () => {
+    Animated.spring(backScale, { toValue: MOTION.press_scale, useNativeDriver: true, ...MOTION.spring_snappy }).start();
+  };
+  const onBackPressOut = () => {
+    Animated.spring(backScale, { toValue: 1, useNativeDriver: true, ...MOTION.spring_snappy }).start();
+  };
   return (
     <View style={[styles.header, { paddingTop: insets.top + 10 }]}>
       {onBack ? (
-        <Pressable style={styles.iconButton} onPress={onBack} accessibilityRole="button" accessibilityLabel="Go back">
-          <ArrowLeft color={COLORS.white} size={22} />
-        </Pressable>
+        <Animated.View style={{ transform: [{ scale: backScale }] }}>
+          <Pressable
+            style={styles.iconButton}
+            onPress={onBack}
+            onPressIn={onBackPressIn}
+            onPressOut={onBackPressOut}
+            accessibilityRole="button"
+            accessibilityLabel="Go back"
+          >
+            <ArrowLeft color={COLORS.white} size={22} />
+          </Pressable>
+        </Animated.View>
       ) : (
         <View style={styles.iconButton} />
       )}

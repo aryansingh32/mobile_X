@@ -1,11 +1,25 @@
 import { useShallow } from 'zustand/react/shallow';
-import React, { useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import React, { useRef, useState } from 'react';
+import { Animated, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Check, Gamepad2, Clapperboard, Cpu, Trophy, Laugh } from 'lucide-react-native';
-import { COLORS, RADIUS, SPACING, TYPOGRAPHY } from '../constants/theme';
+import { COLORS, MOTION, RADIUS, SPACING, TYPOGRAPHY } from '../constants/theme';
 import AppButton from '../components/ui/AppButton';
 import QuestBoxHero from '../components/ui/QuestBoxHero';
 import { useAppStore } from '../store/useAppStore';
+
+// Small tappable checkbox row that scales down on press (see AppButton for the reference pattern).
+const InterestRow: React.FC<{ onPress: () => void; children: React.ReactNode; accessibilityRole?: 'checkbox'; accessibilityState?: { checked: boolean } }> = ({ onPress, children, accessibilityRole, accessibilityState }) => {
+  const scale = useRef(new Animated.Value(1)).current;
+  const onPressIn = () => Animated.spring(scale, { toValue: MOTION.press_scale, useNativeDriver: true, ...MOTION.spring_snappy }).start();
+  const onPressOut = () => Animated.spring(scale, { toValue: 1, useNativeDriver: true, ...MOTION.spring_snappy }).start();
+  return (
+    <Animated.View style={{ transform: [{ scale }] }}>
+      <Pressable style={styles.row} onPress={onPress} onPressIn={onPressIn} onPressOut={onPressOut} accessibilityRole={accessibilityRole} accessibilityState={accessibilityState}>
+        {children}
+      </Pressable>
+    </Animated.View>
+  );
+};
 
 const OPTIONS = [
   { key: 'gaming', label: 'Gaming', icon: Gamepad2 },
@@ -50,7 +64,7 @@ export const InterestsScreen = ({ onContinue }: { onContinue: () => void }) => {
             const Icon = option.icon;
             const isActive = selected.includes(option.key);
             return (
-              <Pressable key={option.key} style={styles.row} onPress={() => toggle(option.key)} accessibilityRole="checkbox" accessibilityState={{ checked: isActive }}>
+              <InterestRow key={option.key} onPress={() => toggle(option.key)} accessibilityRole="checkbox" accessibilityState={{ checked: isActive }}>
                 <View style={styles.rowLeft}>
                   <View style={styles.iconCircle}>
                     <Icon size={18} color={COLORS.white_80} />
@@ -60,7 +74,7 @@ export const InterestsScreen = ({ onContinue }: { onContinue: () => void }) => {
                 <View style={[styles.checkbox, isActive && styles.checkboxActive]}>
                   {isActive ? <Check size={14} color="#111111" /> : null}
                 </View>
-              </Pressable>
+              </InterestRow>
             );
           })}
         </View>
