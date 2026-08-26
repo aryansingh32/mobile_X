@@ -59,6 +59,17 @@ model User {
   lifetimeShortsWatched   Int @default(0)
   lifetimeGamesPlayed     Int @default(0)
   lifetimeOfferwallTasks  Int @default(0)
+
+  // Admin console (Users page) filters/sorts on all of these at growing
+  // scale — without indexes each becomes a sequential scan over the whole
+  // table as the user base grows past a trivial size.
+  @@index([banned])
+  @@index([shadowBanned])
+  @@index([trustScore])
+  @@index([riskScore])
+  @@index([createdAt])
+  @@index([lastActiveAt])
+  @@index([country])
 }
 
 model DeviceFingerprint {

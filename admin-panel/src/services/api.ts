@@ -37,6 +37,8 @@ export const adjustUserBalance = (userId: number, amount: number, reason?: strin
 export const updateUserMetrics = (userId: number, metrics: any) => api.post(`/admin/users/${userId}/metrics`, metrics);
 export const banUser = (userId: number) => api.post(`/admin/users/${userId}/metrics`, { banned: true });
 export const shadowBanUser = (userId: number) => api.post(`/admin/users/${userId}/metrics`, { shadowBanned: true });
+export const bulkUpdateUsers = (userIds: number[], action: 'ban' | 'unban' | 'shadowban' | 'unshadowban') =>
+  api.post('/admin/users/bulk-action', { userIds, action });
 export const getLiveUsers = () => api.get('/admin/live-users');
 
 // Economy & Catalog
