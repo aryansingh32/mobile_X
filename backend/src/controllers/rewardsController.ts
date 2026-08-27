@@ -129,6 +129,42 @@ export const handleAdMobSSV = async (req: any, res: Response): Promise<void> => 
       return;
     }
 
+    // Parity with claimAdReward: a device already flagged as rooted/emulated
+    // for this user should not mint real coins just because this particular
+    // ad type happens to go through Google's SSV path instead of the
+    // client-claim endpoint. Log and skip the credit, but still ack 200 to
+    // Google — this is our fraud gate, not a signal Google's callback failed.
+    const deviceIdForCheck = dStr && dStr !== 'null' && dStr !== 'undefined' ? dStr : undefined;
+    if (deviceIdForCheck) {
+      const flaggedDevice = await prisma.deviceFingerprint.findFirst({
+        where: {
+          userId: uid,
+          deviceIdHash: deviceIdForCheck,
+          OR: [{ isRooted: true }, { isEmulator: true }],
+        },
+        select: { id: true, isRooted: true, isEmulator: true },
+      });
+
+      if (flaggedDevice) {
+        await prisma.fraudIncident.create({
+          data: {
+            userId: uid,
+            reason: 'FLAGGED_DEVICE_REWARD_CLAIM',
+            severity: 'HIGH',
+            metadata: JSON.stringify({
+              deviceId: deviceIdForCheck,
+              isRooted: flaggedDevice.isRooted,
+              isEmulator: flaggedDevice.isEmulator,
+              path: 'admob-ssv',
+              adType: type,
+            }),
+          },
+        }).catch(() => undefined);
+        res.status(200).send('OK (Reward blocked: flagged device)');
+        return;
+      }
+    }
+
     // A rule can legitimately be configured (via the admin panel) with 0 coins —
     // e.g. an ad type that only unlocks a non-monetary perk. addLedgerEntry()
     // rejects zero-amount entries by design, so skip the ledger write entirely
