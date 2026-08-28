@@ -1,4 +1,5 @@
 import { useShallow } from 'zustand/react/shallow';
+import axios from 'axios';
 import React, { useRef, useState, useCallback, useMemo, useEffect } from 'react';
 import { View, StyleSheet, Dimensions, FlatList, ViewToken, Platform, Text, Pressable, Alert, ActivityIndicator, Animated, AppState, TouchableOpacity, Image } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -93,6 +94,7 @@ export function ShortsFeed({ startVideoId, onVideoStarted, onBack }: { startVide
   const itemsSinceLastAd = useRef(0);
   // Client-side seen video tracking — prevents same videos from reshowing this session
   const seenVideoIds = useRef<Set<string>>(new Set());
+  const abortControllerRef = useRef<AbortController | null>(null);
   
   // Single shared scale value for the "Watch & Earn" opt-in CTA — only one such
   // card is ever active/interactive at a time, so one Animated.Value suffices.
@@ -129,13 +131,19 @@ export function ShortsFeed({ startVideoId, onVideoStarted, onBack }: { startVide
 
   const loadData = async (isLoadMore = false) => {
     if (isLoadMore && (!cursor || fetchingMore)) return;
+    // Cancel any still-in-flight fetch (e.g. a slow initial load superseded
+    // by a retry tap) before starting a new one, and so unmount can cancel
+    // whatever's outstanding without touching state on the way out.
+    abortControllerRef.current?.abort();
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
     try {
       if (isLoadMore) setFetchingMore(true);
       else setIsLoading(true);
       // Pass seen video IDs to backend to avoid reshowing same videos this session
       const excludeIds = isLoadMore ? Array.from(seenVideoIds.current) : [];
-      const res = await fetchShorts(isLoadMore ? cursor! : undefined, 10, excludeIds);
-      
+      const res = await fetchShorts(isLoadMore ? cursor! : undefined, 10, excludeIds, controller.signal);
+
       let fetchedItems: ShortData[] = res.data.map((item: any) => ({
         id: item.videoId,
         username: 'Creator',
@@ -207,17 +215,23 @@ export function ShortsFeed({ startVideoId, onVideoStarted, onBack }: { startVide
           onVideoStarted();
         }
       }
-    } catch {
+    } catch (err) {
+      // Aborted (unmount, or superseded by a newer call) — a newer request
+      // already owns state, or there's no component left to update it.
+      if (axios.isCancel(err)) return;
       // Never show developer error details to users
     } finally {
-      setFetchingMore(false);
-      setIsLoading(false); // Always clear loading state after first fetch
+      if (!controller.signal.aborted) {
+        setFetchingMore(false);
+        setIsLoading(false); // Always clear loading state after first fetch
+      }
     }
   };
 
   useEffect(() => {
     loadData();
     getDeviceId().then(setDeviceId).catch(() => {});
+    return () => abortControllerRef.current?.abort();
   }, []);
 
   useEffect(() => {

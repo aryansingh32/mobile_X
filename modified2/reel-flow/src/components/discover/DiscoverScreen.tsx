@@ -1,6 +1,7 @@
 import { useShallow } from 'zustand/react/shallow';
-import React, { useState, useRef, useEffect } from 'react';
-import { View, Text, StyleSheet, Animated, Dimensions, AppState, Image, Alert, ScrollView, TouchableOpacity } from 'react-native';
+import axios from 'axios';
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+import { View, Text, StyleSheet, Animated, Dimensions, AppState, Image, Alert, ScrollView, TouchableOpacity, Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { fetchNews, fetchNewsFilters } from '../../api/news';
 import { DiscoverCard, CardLayout, ITEM_SIZE, CARD_HEIGHT, ITEM_SPACING } from './DiscoverCard';
@@ -56,6 +57,7 @@ export const DiscoverScreen: React.FC = () => {
   const [deviceId, setDeviceId] = useState<string | null>(null);
   const scrollY = useRef(new Animated.Value(0)).current;
   const itemsSinceLastAd = useRef(0);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   // Pre-loaded rewarded ad for instant display (avoids 10s+ load delay)
   const preloadedRewardedRef = useRef<any>(null);
@@ -99,16 +101,21 @@ export const DiscoverScreen: React.FC = () => {
 
   const loadData = async (isLoadMore = false, catOverride?: string | null, srcOverride?: string | null) => {
     if (isLoadMore && (!cursor || fetchingMore)) return;
+    // Cancel whatever's still in flight (e.g. a filter change superseding
+    // the previous page fetch) before starting a new one.
+    abortControllerRef.current?.abort();
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
     try {
       setError('');
       if (isLoadMore) setFetchingMore(true);
       else setLoading(true);
-      
+
       const currentCategory = catOverride !== undefined ? catOverride : selectedCategory;
       const currentSource = srcOverride !== undefined ? srcOverride : selectedSource;
-      
-      const res = await fetchNews(isLoadMore ? cursor! : undefined, 30, currentCategory ?? undefined, currentSource ?? undefined);
-      
+
+      const res = await fetchNews(isLoadMore ? cursor! : undefined, 30, currentCategory ?? undefined, currentSource ?? undefined, controller.signal);
+
       // Map items
       let fetchedItems: any[] = (res?.data || []).map((item: any) => {
         const date = new Date(item.publishedAt || Date.now());
@@ -174,6 +181,10 @@ export const DiscoverScreen: React.FC = () => {
       });
       setCursor(res.nextCursor);
     } catch (error) {
+      // Aborted (unmount, or superseded by a newer call, e.g. a filter
+      // change) — a newer request already owns state, or there's nothing
+      // left to update.
+      if (axios.isCancel(error)) return;
       if (isLoadMore) {
         // Pagination error: don't destroy the feed — just show the error state
         // and the footer's retry. The user's existing items remain visible.
@@ -181,8 +192,10 @@ export const DiscoverScreen: React.FC = () => {
         setError('Could not load stories.');
       }
     } finally {
-      setLoading(false);
-      setFetchingMore(false);
+      if (!controller.signal.aborted) {
+        setLoading(false);
+        setFetchingMore(false);
+      }
     }
   };
 
@@ -199,6 +212,7 @@ export const DiscoverScreen: React.FC = () => {
     });
     loadData();
     getDeviceId().then(setDeviceId).catch(() => {});
+    return () => abortControllerRef.current?.abort();
   }, []);
 
   useEffect(() => {
@@ -363,6 +377,17 @@ export const DiscoverScreen: React.FC = () => {
     setTimeout(() => setCardLayout(null), 300);
   };
 
+  // Every row is a fixed CARD_HEIGHT + ITEM_SPACING (ITEM_SIZE), so this lets
+  // FlatList skip a measurement pass per row — same optimization ShortsFeed
+  // already applies to its own fixed-height feed.
+  const getItemLayout = useCallback((_: unknown, index: number) => ({
+    length: ITEM_SIZE, offset: ITEM_SIZE * index, index,
+  }), []);
+  const snapToOffsets = useMemo(
+    () => data.map((_, i) => i * ITEM_SIZE),
+    [data.length]
+  );
+
   return (
     <View style={styles.root}>
       <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
@@ -418,11 +443,17 @@ export const DiscoverScreen: React.FC = () => {
               [{ nativeEvent: { contentOffset: { y: scrollY } } }],
               { useNativeDriver: true }
             )}
-            snapToOffsets={data.map((_, i) => i * ITEM_SIZE)}
+            snapToOffsets={snapToOffsets}
             decelerationRate="fast"
             showsVerticalScrollIndicator={false}
             onEndReached={() => loadData(true)}
             onEndReachedThreshold={2.5}
+            initialNumToRender={5}
+            windowSize={7}
+            maxToRenderPerBatch={3}
+            updateCellsBatchingPeriod={50}
+            removeClippedSubviews={Platform.OS === 'android'}
+            getItemLayout={getItemLayout}
             ListHeaderComponent={<View style={{ height: OFFSET }} />}
             ListFooterComponent={
               <View style={{ height: OFFSET, alignItems: 'center', justifyContent: 'flex-start' }}>

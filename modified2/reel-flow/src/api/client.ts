@@ -52,7 +52,13 @@ apiClient.interceptors.response.use(
       useAppStore.getState().logout();
     } else if (error.response?.status === 429) {
       Alert.alert('Rate Limited', 'Too many requests. Please slow down.');
-    } else if (!error.response && originalConfig && (originalConfig._retryCount ?? 0) < MAX_GET_RETRIES && originalConfig.method === 'get') {
+    } else if (
+      !error.response &&
+      !axios.isCancel(error) &&
+      originalConfig &&
+      (originalConfig._retryCount ?? 0) < MAX_GET_RETRIES &&
+      originalConfig.method === 'get'
+    ) {
       // Retry logic for network failures (only safe for idempotent GET requests).
       // Exponential backoff with jitter so a flaky connection doesn't hammer
       // the server with retries spaced exactly 1s apart.
