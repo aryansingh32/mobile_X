@@ -77,6 +77,7 @@ interface ConfigState {
   lastFetchedAt: number;
 
   setConfig: (config: RemoteConfigPayload) => void;
+  setFeatureFlag: (key: string, value: boolean) => void;
   setHydrated: (h: boolean) => void;
   getContent: (key: string, fallback: string) => string;
   getFlag: (key: string, fallback?: boolean) => boolean;
@@ -114,6 +115,9 @@ export const useConfigStore = create<ConfigState>()(
           screenSections: config.screenSections,
           lastFetchedAt: Date.now(),
         }),
+
+      setFeatureFlag: (key, value) =>
+        set((state) => ({ featureFlags: { ...state.featureFlags, [key]: value } })),
 
       setHydrated: (h) => set({ hydrated: h }),
 

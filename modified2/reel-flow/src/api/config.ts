@@ -26,6 +26,21 @@ export const fetchRemoteConfig = async (
 };
 
 /**
+ * Fetch the small, unauthenticated subset of config exposed pre-login —
+ * currently just maintenance mode. GET /api/config/remote requires a token,
+ * so without this, a logged-out or still-onboarding user never learns the
+ * backend is in maintenance mode until a login attempt fails outright.
+ */
+export const fetchPublicStatus = async (): Promise<{ maintenanceMode: boolean } | null> => {
+  try {
+    const { data } = await apiClient.get('/api/config', { timeout: 10000 });
+    return { maintenanceMode: !!data?.maintenanceMode };
+  } catch {
+    return null;
+  }
+};
+
+/**
  * Report an ad lifecycle event to the backend (fire-and-forget for most
  * event types). On DISMISSED/ABANDONED events specifically, the backend
  * computes a rolling abandonment ratio server-side and may return a

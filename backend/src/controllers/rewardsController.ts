@@ -7,6 +7,7 @@ import { addExp } from '../services/expService';
 import { AuthRequest } from '../middlewares/authMiddleware';
 import requestIp from 'request-ip';
 import { sendServerError } from '../utils/errorResponse';
+import logger from '../utils/logger';
 
 const getConfigInt = async (key: string, fallback: number): Promise<number> => {
   const config = await prisma.appConfig.findUnique({ where: { key } });
@@ -250,7 +251,22 @@ export const claimShortReward = async (req: AuthRequest, res: Response): Promise
     const rewardConfig = await prisma.appConfig.findUnique({
       where: { key: 'short_watch_reward_coins' },
     });
-    const rewardCoins = rewardConfig ? parseInt(rewardConfig.value) : 0;
+    let rewardCoins = rewardConfig ? parseInt(rewardConfig.value) : 0;
+
+    // Hard ceiling: YouTube API Services Developer Policy prohibits
+    // incentivizing/rewarding users for watching YouTube content. The
+    // config default is 0, but it's an admin-editable AppConfig row — this
+    // makes that safe by construction, not just by convention. A nonzero
+    // reward is only ever honored if a second, explicitly-named flag
+    // confirms someone actually signed off on the policy risk; flipping
+    // short_watch_reward_coins alone can never pay out real coins again.
+    if (rewardCoins > 0) {
+      const legalReviewApproved = await getConfigBoolean('short_watch_reward_coins_legal_review_approved', false);
+      if (!legalReviewApproved) {
+        logger.warn('short_watch_reward_coins is nonzero but legal-review flag is not set — forcing reward to 0', { configuredValue: rewardCoins });
+        rewardCoins = 0;
+      }
+    }
 
     const clientIp = requestIp.getClientIp(req) || 'unknown';
 

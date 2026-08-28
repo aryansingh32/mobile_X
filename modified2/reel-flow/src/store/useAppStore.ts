@@ -21,6 +21,10 @@ export interface AppState {
   token: string | null;
   isAuthenticated: boolean;
   hydrated: boolean;
+  // Live runtime signal, not persisted — set true by api/client.ts when a
+  // request fails with no response at all (genuine network unreachability,
+  // not a 4xx/5xx), cleared the next time any request succeeds.
+  isOffline: boolean;
 
   // Wallet
   coinBalance: number;
@@ -80,6 +84,7 @@ export interface AppState {
   setLevel: (level: number) => void;
   setStreak: (streak: number) => void;
   setHydrated: (h: boolean) => void;
+  setOffline: (offline: boolean) => void;
   setDailyStats: (stats: { remaining: number; cap: number; todayEarned: number }) => void;
   setStreakClaimedToday: (claimed: boolean) => void;
   setDailyBonusAvailable: (available: boolean) => void;
@@ -104,6 +109,7 @@ export const useAppStore = create<AppState>()(
       token: null,
       isAuthenticated: false,
       hydrated: false,
+      isOffline: false,
 
       // Wallet
       coinBalance: 0,
@@ -210,6 +216,9 @@ export const useAppStore = create<AppState>()(
       setLevel: (level) => set({ level }),
       setStreak: (streak) => set({ streak }),
       setHydrated: (h) => set({ hydrated: h }),
+
+      setOffline: (offline) =>
+        set((state) => (state.isOffline === offline ? state : { isOffline: offline })),
       setDailyStats: (stats) =>
         set({
           dailyRewardsRemaining: stats.remaining,

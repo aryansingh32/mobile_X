@@ -1,5 +1,5 @@
 import { useShallow } from 'zustand/react/shallow';
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useImperativeHandle, useRef, useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator } from 'react-native';
 import { WebView } from 'react-native-webview';
 import { ArrowLeft } from 'lucide-react-native';
@@ -16,7 +16,14 @@ type Props = {
   onExit: () => void;
 };
 
-export const GamePlayerOverlay = ({ selectedGame, onExit }: Props) => {
+// Exposes the same ad-gated exit flow the in-app back arrow uses, so the
+// Android hardware back button can trigger it too instead of a parent
+// screen closing itself outright and skipping it — see handleBack below.
+export interface GamePlayerOverlayHandle {
+  handleBack: () => boolean;
+}
+
+export const GamePlayerOverlay = React.forwardRef<GamePlayerOverlayHandle, Props>(({ selectedGame, onExit }, ref) => {
   const insets = useSafeAreaInsets();
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState(false);
@@ -135,6 +142,14 @@ export const GamePlayerOverlay = ({ selectedGame, onExit }: Props) => {
     }
   };
 
+  useImperativeHandle(ref, () => ({
+    handleBack: () => {
+      if (!selectedGame) return false;
+      handleGameExit();
+      return true;
+    },
+  }), [selectedGame]);
+
   if (!selectedGame) return null;
 
   return (
@@ -187,7 +202,9 @@ export const GamePlayerOverlay = ({ selectedGame, onExit }: Props) => {
       </View>
     </View>
   );
-};
+});
+
+GamePlayerOverlay.displayName = 'GamePlayerOverlay';
 
 const styles = StyleSheet.create({
   playerRoot: {

@@ -1,18 +1,30 @@
 import { useShallow } from 'zustand/react/shallow';
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useImperativeHandle, useRef, useState } from 'react';
 import { View, Text, StyleSheet, FlatList, TouchableOpacity, Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ArrowLeft } from 'lucide-react-native';
 import { useAppStore } from '../store/useAppStore';
 import { Game } from '../api/games';
-import { GamePlayerOverlay } from '../components/ui/GamePlayerOverlay';
+import { GamePlayerOverlay, GamePlayerOverlayHandle } from '../components/ui/GamePlayerOverlay';
 import { GameGridCard } from '../components/ui/GameGridCard';
 
-export const GamesScreen = ({ onBack }: { onBack: () => void }) => {
+// Lets the app's shared Android hardware-back handler close an open game
+// (running the same ad-gated exit flow the in-app back arrow uses) instead
+// of always closing the whole Games screen in one jump — see App.tsx.
+export interface GamesScreenHandle {
+  handleBack: () => boolean;
+}
+
+export const GamesScreen = React.forwardRef<GamesScreenHandle, { onBack: () => void }>(({ onBack }, ref) => {
   const insets = useSafeAreaInsets();
   const [selectedGame, setSelectedGame] = useState<Game | null>(null);
   const { games, trackEvent } = useAppStore(useShallow(s => ({ games: s.games, trackEvent: s.trackEvent })));
   const [loading, setLoading] = useState(true);
+  const playerRef = useRef<GamePlayerOverlayHandle>(null);
+
+  useImperativeHandle(ref, () => ({
+    handleBack: () => playerRef.current?.handleBack() ?? false,
+  }), []);
 
   React.useEffect(() => {
     let mounted = true;
@@ -36,9 +48,10 @@ export const GamesScreen = ({ onBack }: { onBack: () => void }) => {
 
   return (
     <View style={styles.root}>
-      <GamePlayerOverlay 
-        selectedGame={selectedGame} 
-        onExit={() => setSelectedGame(null)} 
+      <GamePlayerOverlay
+        ref={playerRef}
+        selectedGame={selectedGame}
+        onExit={() => setSelectedGame(null)}
       />
 
       <View style={[styles.header, { paddingTop: insets.top + 10 }]}>
@@ -82,7 +95,9 @@ export const GamesScreen = ({ onBack }: { onBack: () => void }) => {
       )}
     </View>
   );
-};
+});
+
+GamesScreen.displayName = 'GamesScreen';
 
 const styles = StyleSheet.create({
   root: {

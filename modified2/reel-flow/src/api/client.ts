@@ -43,31 +43,37 @@ apiClient.interceptors.request.use((config) => {
   return config;
 });
 
-// Response interceptor — handle 401 and 429
+// Response interceptor — handle 401 and 429, track connectivity
 apiClient.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    if (useAppStore.getState().isOffline) useAppStore.getState().setOffline(false);
+    return response;
+  },
   (error) => {
     const originalConfig = error.config;
     if (error.response?.status === 401) {
       useAppStore.getState().logout();
     } else if (error.response?.status === 429) {
       Alert.alert('Rate Limited', 'Too many requests. Please slow down.');
-    } else if (
-      !error.response &&
-      !axios.isCancel(error) &&
-      originalConfig &&
-      (originalConfig._retryCount ?? 0) < MAX_GET_RETRIES &&
-      originalConfig.method === 'get'
-    ) {
-      // Retry logic for network failures (only safe for idempotent GET requests).
-      // Exponential backoff with jitter so a flaky connection doesn't hammer
-      // the server with retries spaced exactly 1s apart.
-      const attempt = (originalConfig._retryCount ?? 0) + 1;
-      originalConfig._retryCount = attempt;
-      const delay = Math.min(500 * 2 ** (attempt - 1), 4000) + Math.random() * 250;
-      return new Promise((resolve) => {
-        setTimeout(() => resolve(apiClient(originalConfig)), delay);
-      });
+    } else if (!error.response && !axios.isCancel(error)) {
+      // No response at all — a genuine network failure, not a 4xx/5xx and
+      // not an intentional abort.
+      if (originalConfig && (originalConfig._retryCount ?? 0) < MAX_GET_RETRIES && originalConfig.method === 'get') {
+        // Retry logic for network failures (only safe for idempotent GET requests).
+        // Exponential backoff with jitter so a flaky connection doesn't hammer
+        // the server with retries spaced exactly 1s apart.
+        const attempt = (originalConfig._retryCount ?? 0) + 1;
+        originalConfig._retryCount = attempt;
+        const delay = Math.min(500 * 2 ** (attempt - 1), 4000) + Math.random() * 250;
+        return new Promise((resolve) => {
+          setTimeout(() => resolve(apiClient(originalConfig)), delay);
+        });
+      }
+      // Retries exhausted (or not a retryable GET) — surface this as an
+      // app-wide "offline" signal rather than just letting the caller's own
+      // catch handler swallow it silently, which was previously the only
+      // outcome (see NoInternetScreen, now wired up off this flag).
+      useAppStore.getState().setOffline(true);
     }
     return Promise.reject(error);
   }

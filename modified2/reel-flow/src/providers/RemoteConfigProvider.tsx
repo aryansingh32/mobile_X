@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useCallback } from 'react';
 import { AppState, AppStateStatus } from 'react-native';
 import { useConfigStore } from '../store/useConfigStore';
 import { useAppStore } from '../store/useAppStore';
-import { fetchRemoteConfig } from '../api/config';
+import { fetchRemoteConfig, fetchPublicStatus } from '../api/config';
 
 const REFRESH_INTERVAL_MS = 15 * 60 * 1000; // 15 minutes
 
@@ -24,11 +24,11 @@ export const RemoteConfigProvider: React.FC<{ children: React.ReactNode }> = ({ 
   const token = useAppStore((s) => s.token);
   const configVersion = useConfigStore((s) => s.version);
   const setConfig = useConfigStore((s) => s.setConfig);
+  const setFeatureFlag = useConfigStore((s) => s.setFeatureFlag);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const inFlightRef = useRef(false);
 
   const doFetch = useCallback(async () => {
-    if (!token) return; // Can't fetch without auth
     // Mount, foreground, and the 15-minute interval can all land within
     // moments of each other — skip if a fetch is already in flight instead
     // of firing overlapping requests.
@@ -36,6 +36,16 @@ export const RemoteConfigProvider: React.FC<{ children: React.ReactNode }> = ({ 
     inFlightRef.current = true;
 
     try {
+      if (!token) {
+        // The full authenticated payload isn't reachable pre-login, but a
+        // logged-out/still-onboarding user still needs to know if the
+        // backend is in maintenance mode — otherwise they only find out
+        // when a login attempt fails outright. This is a much smaller,
+        // unauthenticated request, not the full remote-config fetch.
+        const status = await fetchPublicStatus();
+        if (status) setFeatureFlag('maintenance_mode', status.maintenanceMode);
+        return;
+      }
       const result = await fetchRemoteConfig(configVersion);
       if (result) {
         setConfig(result);
@@ -43,22 +53,22 @@ export const RemoteConfigProvider: React.FC<{ children: React.ReactNode }> = ({ 
     } finally {
       inFlightRef.current = false;
     }
-  }, [token, configVersion, setConfig]);
+  }, [token, configVersion, setConfig, setFeatureFlag]);
 
   // Fetch on mount and token change
   useEffect(() => {
     doFetch();
   }, [token]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Periodic refresh every 15 minutes
+  // Periodic refresh every 15 minutes — runs pre-login too now (the
+  // lightweight public-status check above), so maintenance mode and
+  // connectivity get re-checked even while a user lingers on Auth/Onboarding.
   useEffect(() => {
-    if (!token) return;
-
     intervalRef.current = setInterval(doFetch, REFRESH_INTERVAL_MS);
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current);
     };
-  }, [token, doFetch]);
+  }, [doFetch]);
 
   // Refresh on app foreground
   useEffect(() => {

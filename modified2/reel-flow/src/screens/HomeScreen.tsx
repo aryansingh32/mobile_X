@@ -1,5 +1,5 @@
 import { useShallow } from 'zustand/react/shallow';
-import React, { useEffect, useState, useMemo, useRef } from 'react';
+import React, { useEffect, useState, useMemo, useRef, useImperativeHandle } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl, Alert, Image } from 'react-native';
 import { useAppStore } from '../store/useAppStore';
 import { useConfigStore } from '../store/useConfigStore';
@@ -21,7 +21,7 @@ import AutoMarquee from '../components/ui/AutoMarquee';
 import { useToast } from '../components/ui/Toast';
 import { DailyMissionsCard } from '../components/ui/DailyMissionsCard';
 import { fetchGamesFromOrigin, Game } from '../api/games';
-import { GamePlayerOverlay } from '../components/ui/GamePlayerOverlay';
+import { GamePlayerOverlay, GamePlayerOverlayHandle } from '../components/ui/GamePlayerOverlay';
 import { GameGridCard } from '../components/ui/GameGridCard';
 import { RewardedAd, RewardedAdEventType, AdEventType, TestIds } from 'react-native-google-mobile-ads';
 import { useAdPlacement, isAdPenalized, getAdPenaltyRemainingSeconds } from '../hooks/useAdPlacement';
@@ -46,14 +46,23 @@ type HomeScreenProps = {
   onOpenShortsWithVideo?: (videoId: string) => void;
 };
 
-export const HomeScreen = ({
+// Lets the app's shared Android hardware-back handler close a game opened
+// via Home's own "quick play" entry point — this screen keeps its own
+// selectedGame state, invisible to App.tsx's back handler otherwise, which
+// previously meant hardware-back while such a game was open fell through
+// to "exit the app" instead of closing the game.
+export interface HomeScreenHandle {
+  handleBack: () => boolean;
+}
+
+export const HomeScreen = React.forwardRef<HomeScreenHandle, HomeScreenProps>(({
   onNavigate,
   onOpenGames,
   onOpenProfile,
   onOpenNotifications,
   onOpenDailyMissions,
   onOpenShortsWithVideo,
-}: HomeScreenProps) => {
+}, ref) => {
   const {
     user,
     isAdPlaying,
@@ -86,6 +95,11 @@ export const HomeScreen = ({
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [selectedGame, setSelectedGame] = useState<Game | null>(null);
+  const gamePlayerRef = useRef<GamePlayerOverlayHandle>(null);
+
+  useImperativeHandle(ref, () => ({
+    handleBack: () => gamePlayerRef.current?.handleBack() ?? false,
+  }), []);
   const [missions, setMissions] = useState<any[]>([]);
   const [error, setError] = useState('');
   const [coinRain, setCoinRain] = useState({ visible: false, amount: 0 });
@@ -541,7 +555,7 @@ export const HomeScreen = ({
       />
       <FallingEmbers />
 
-      <GamePlayerOverlay selectedGame={selectedGame} onExit={() => setSelectedGame(null)} />
+      <GamePlayerOverlay ref={gamePlayerRef} selectedGame={selectedGame} onExit={() => setSelectedGame(null)} />
 
       {/* Header */}
       <View style={styles.header}>
@@ -841,7 +855,9 @@ export const HomeScreen = ({
       )}
     </View>
   );
-};
+});
+
+HomeScreen.displayName = 'HomeScreen';
 
 const styles = StyleSheet.create({
   container: {
