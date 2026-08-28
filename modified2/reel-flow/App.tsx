@@ -33,6 +33,7 @@ import { NotificationsScreen } from './src/screens/NotificationsScreen';
 import { HelpSupportScreen } from './src/screens/HelpSupportScreen';
 import { LeaderboardScreen } from './src/screens/LeaderboardScreen';
 import { AchievementScreen } from './src/screens/AchievementScreen';
+import { ErrorBoundary } from './src/components/ErrorBoundary';
 import { ReferEarnScreen } from './src/screens/ReferEarnScreen';
 import { DailyMissionsScreen } from './src/screens/DailyMissionsScreen';
 import { MaintenanceScreen } from './src/screens/MaintenanceScreen';
@@ -506,29 +507,44 @@ function MainApp() {
 export default function App() {
   const { token, hydrated, hasCompletedOnboarding } = useAppStore();
   const maintenanceMode = useFeatureFlag('maintenance_mode', false);
+  // SplashScreen's own onFinish only fires once its entrance animation AND
+  // its hero-image preload both complete — previously this was never
+  // passed in, so the splash was dismissed purely on `hydrated` (an
+  // AsyncStorage/SecureStore read that's often faster than the animation),
+  // silently breaking the "no shimmer on Welcome/Auth" guarantee the
+  // preloader exists for. This can only make the splash last >= as long as
+  // before, never hang: SplashScreen calls onFinish even on an image load
+  // error, and the animation timer always fires.
+  const [splashReady, setSplashReady] = useState(false);
 
   // For logged-in users, this shows briefly during hydration.
   // For logged-out users, WelcomeScreen handles the interactive splash phase.
-  if (!hydrated) {
-    return <SplashScreen />;
+  if (!hydrated || !splashReady) {
+    return (
+      <ErrorBoundary>
+        <SplashScreen onFinish={() => setSplashReady(true)} />
+      </ErrorBoundary>
+    );
   }
 
   return (
-    <SafeAreaProvider>
-      <ToastProvider>
-        <RemoteConfigProvider>
-          {maintenanceMode ? (
-            <MaintenanceScreen />
-          ) : !hasCompletedOnboarding ? (
-            <OnboardingFlow />
-          ) : !token ? (
-            <AuthScreen />
-          ) : (
-            <MainApp />
-          )}
-        </RemoteConfigProvider>
-      </ToastProvider>
-    </SafeAreaProvider>
+    <ErrorBoundary>
+      <SafeAreaProvider>
+        <ToastProvider>
+          <RemoteConfigProvider>
+            {maintenanceMode ? (
+              <MaintenanceScreen />
+            ) : !hasCompletedOnboarding ? (
+              <OnboardingFlow />
+            ) : !token ? (
+              <AuthScreen />
+            ) : (
+              <MainApp />
+            )}
+          </RemoteConfigProvider>
+        </ToastProvider>
+      </SafeAreaProvider>
+    </ErrorBoundary>
   );
 }
 

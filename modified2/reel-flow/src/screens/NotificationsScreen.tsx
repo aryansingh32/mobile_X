@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Bell, Gift, ShoppingBag, Users, CheckCircle2 } from 'lucide-react-native';
 import { AppNotification, getNotifications, markNotificationRead } from '../api/notifications';
@@ -34,23 +34,28 @@ export const NotificationsScreen = ({ onBack }: { onBack: () => void }) => {
   const [error, setError] = useState('');
   const [filter, setFilter] = useState<FilterKey>('all');
 
+  const mountedRef = useRef(true);
   useEffect(() => {
-    let mounted = true;
-    const fetchNotifs = async () => {
-      setLoading(true);
-      setError('');
-      try {
-        const data = await getNotifications();
-        if (mounted) setNotifications(data);
-      } catch {
-        if (mounted) setError('Failed to load notifications');
-      } finally {
-        if (mounted) setLoading(false);
-      }
-    };
-    fetchNotifs();
-    return () => { mounted = false; };
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
   }, []);
+
+  // Shared by the initial mount fetch and "Tap to retry" — previously the
+  // retry button only did setLoading(true) with nothing to actually
+  // re-trigger the fetch, so any failure left the user permanently stuck
+  // on the shimmer with no way to recover.
+  const fetchNotifs = useCallback(() => {
+    setLoading(true);
+    setError('');
+    getNotifications()
+      .then((data) => { if (mountedRef.current) setNotifications(data); })
+      .catch(() => { if (mountedRef.current) setError('Failed to load notifications'); })
+      .finally(() => { if (mountedRef.current) setLoading(false); });
+  }, []);
+
+  useEffect(() => {
+    fetchNotifs();
+  }, [fetchNotifs]);
 
   const readNotification = (notification: AppNotification) => {
     if (notification.read) return;
@@ -85,7 +90,7 @@ export const NotificationsScreen = ({ onBack }: { onBack: () => void }) => {
       {error ? (
         <Pressable
           style={({ pressed }) => [styles.errorCard, pressed && styles.pressedDim]}
-          onPress={() => setLoading(true)}
+          onPress={fetchNotifs}
         >
           <Text style={styles.errorText}>{error}. Tap to retry.</Text>
         </Pressable>

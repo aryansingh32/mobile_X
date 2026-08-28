@@ -19,6 +19,10 @@ export const RewardsScreen = () => {
 
   const mountedRef = React.useRef(true);
   React.useEffect(() => { return () => { mountedRef.current = false; } }, []);
+  // dailyBonusAvailable only flips to false in the store *after* the claim
+  // request resolves, so a rapid double-tap on "Claim" before that render
+  // lands would otherwise pass the disabled-button check twice.
+  const claimingBonusRef = React.useRef(false);
 
   const { coinBalance, user, updateBalance, setBalance, dailyBonusAvailable, setDailyBonusAvailable, trackEvent } = useAppStore(useShallow(s => ({ coinBalance: s.coinBalance, user: s.user, updateBalance: s.updateBalance, setBalance: s.setBalance, dailyBonusAvailable: s.dailyBonusAvailable, setDailyBonusAvailable: s.setDailyBonusAvailable, trackEvent: s.trackEvent })));
   const [activeTab, setActiveTab] = useState<'tasks' | 'daily' | 'referrals'>('tasks');
@@ -79,25 +83,36 @@ export const RewardsScreen = () => {
     try {
       if (mountedRef.current) setBusyTaskId(taskId);
       const result = await completeTask(taskId);
+      // updateBalance() already applies the earned delta to the store
+      // correctly (a functional update, race-safe against other concurrent
+      // coin-earning actions). The profile refresh below is just a
+      // best-effort correction toward server truth — if IT fails, that must
+      // not turn into a "task could not be completed" error toast for a
+      // task that, in fact, already completed and paid out.
       updateBalance(result.coinsEarned || 0);
-      const profile = await getProfile();
-      setBalance(profile?.coins ?? coinBalance + (result.coinsEarned || 0));
       trackEvent('OFFERWALL', 1);
       showToast(<View style={{flexDirection: 'row', alignItems: 'center'}}><Text style={{color: '#fff', fontSize: 14}}>Task complete — you earned {result.coinsEarned || 0} </Text><VIBIcon size={14} /><Text style={{color: '#fff', fontSize: 14}}>.</Text></View>, 'success');
-      await loadData();
+      const profile = await getProfile().catch(() => null);
+      if (profile?.coins !== undefined) setBalance(profile.coins);
+      await loadData().catch(() => {});
     } catch (err: any) {
-      showToast(err.response?.data?.error || 'This task could not be completed.', 'error');
+      showToast(err?.response?.data?.error || 'This task could not be completed.', 'error');
     } finally {
       if (mountedRef.current) setBusyTaskId(null);
     }
   };
 
   const handleClaimDailyBonus = async () => {
+    if (!dailyBonusAvailable || claimingBonusRef.current) return;
+    claimingBonusRef.current = true;
     try {
       const result = await claimDailyBonus();
       if (result.claimed) {
+        // updateBalance() alone is the correct, race-safe update here —
+        // it was previously followed by setBalance(coinBalance + earned),
+        // which recomputed from a stale render-time coinBalance snapshot
+        // and could clobber a concurrent coin-earning action's result.
         updateBalance(result.coinsEarned || 0);
-        setBalance(coinBalance + (result.coinsEarned || 0));
         setDailyBonusAvailable(false);
         // Daily bonus is the most emotionally important habit-loop moment in
         // the app — give it the same CoinRain celebration Discover ad-rewards
@@ -107,9 +122,11 @@ export const RewardsScreen = () => {
       } else {
         showToast(result.message || 'Already claimed — come back tomorrow.', 'info');
       }
-      await loadData();
+      await loadData().catch(() => {});
     } catch (err: any) {
-      showToast(err.response?.data?.error || 'Bonus unavailable — please try again later.', 'error');
+      showToast(err?.response?.data?.error || 'Bonus unavailable — please try again later.', 'error');
+    } finally {
+      claimingBonusRef.current = false;
     }
   };
 

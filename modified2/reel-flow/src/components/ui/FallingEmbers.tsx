@@ -27,13 +27,21 @@ const Ember = ({ topToBottom }: { topToBottom?: boolean }) => {
 
   useEffect(() => {
     let timeout: NodeJS.Timeout;
-    
+    // This animation restarts itself forever via the .start() completion
+    // callback rather than Animated.loop, so there's no single loop object
+    // to .stop() on unmount — without this flag the recursive restart keeps
+    // going indefinitely (20 particles' worth, each with 3 parallel native
+    // animations) even after the component owning them is gone.
+    let stopped = false;
+    let current: Animated.CompositeAnimation | null = null;
+
     const startAnimation = () => {
+      if (stopped) return;
       fallAnim.setValue(0);
       driftAnim.setValue(0);
       opacityAnim.setValue(0);
 
-      Animated.parallel([
+      current = Animated.parallel([
         Animated.timing(fallAnim, { toValue: 1, duration: config.duration, easing: Easing.linear, useNativeDriver: true }),
         Animated.timing(driftAnim, { toValue: 1, duration: config.duration, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
         Animated.sequence([
@@ -41,13 +49,18 @@ const Ember = ({ topToBottom }: { topToBottom?: boolean }) => {
           Animated.timing(opacityAnim, { toValue: Math.random() * 0.4 + 0.2, duration: config.duration * 0.6, useNativeDriver: true }),
           Animated.timing(opacityAnim, { toValue: 0, duration: config.duration * 0.2, useNativeDriver: true })
         ])
-      ]).start(({ finished }) => {
-        if (finished) startAnimation();
+      ]);
+      current.start(({ finished }) => {
+        if (finished && !stopped) startAnimation();
       });
     };
 
     timeout = setTimeout(startAnimation, config.delay);
-    return () => clearTimeout(timeout);
+    return () => {
+      stopped = true;
+      clearTimeout(timeout);
+      current?.stop();
+    };
   }, [fallAnim, driftAnim, opacityAnim, config]);
 
   const translateY = fallAnim.interpolate({ inputRange: [0, 1], outputRange: [config.startY, height] });

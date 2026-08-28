@@ -22,19 +22,34 @@ export const ReferEarnScreen = ({ onBack }: { onBack: () => void }) => {
   const { user } = useAppStore(useShallow(s => ({ user: s.user })));
   const { showToast } = useToast();
   const [stats, setStats] = useState<any>(null);
+  const [statsError, setStatsError] = useState(false);
   const copyScale = useRef(new Animated.Value(1)).current;
+  const mountedRef = useRef(true);
+
+  const loadStats = () => {
+    setStatsError(false);
+    getReferralStats()
+      .then((res) => { if (mountedRef.current) setStats(res); })
+      .catch(() => { if (mountedRef.current) setStatsError(true); });
+  };
 
   useEffect(() => {
-    let mounted = true;
-    getReferralStats().then((res) => { if (mounted) setStats(res); }).catch(() => {});
-    return () => { mounted = false; };
+    mountedRef.current = true;
+    loadStats();
+    return () => { mountedRef.current = false; };
   }, []);
 
   const code = user?.referralCode || '—';
 
   const copyCode = async () => {
-    await Clipboard.setStringAsync(code);
-    showToast('Referral code copied', 'success');
+    try {
+      await Clipboard.setStringAsync(code);
+      showToast('Referral code copied', 'success');
+    } catch {
+      // Previously unhandled — a failure here meant the user tapped "Copy"
+      // and, from their side, nothing happened at all.
+      showToast('Could not copy — try again', 'error');
+    }
   };
 
   const shareNow = async () => {
@@ -86,6 +101,11 @@ export const ReferEarnScreen = ({ onBack }: { onBack: () => void }) => {
             <Text style={styles.statLabel}>VIB Earned</Text>
           </View>
         </View>
+        {statsError ? (
+          <Pressable onPress={loadStats} accessibilityRole="button" accessibilityLabel="Retry loading referral stats">
+            <Text style={styles.statsRetryText}>Couldn't load your latest stats — tap to retry</Text>
+          </Pressable>
+        ) : null}
 
         <Text style={styles.sectionTitle}>How it Works?</Text>
         <View style={styles.stepsCard}>
@@ -155,6 +175,7 @@ const styles = StyleSheet.create({
   statDivider: { width: 1, height: 32, backgroundColor: COLORS.border_card },
   statValue: { ...TYPOGRAPHY.h1, color: COLORS.yellow },
   statLabel: { ...TYPOGRAPHY.caption, color: COLORS.white_55, marginTop: 4 },
+  statsRetryText: { ...TYPOGRAPHY.caption, color: COLORS.yellow, textAlign: 'center', marginTop: SPACING.sm },
   sectionTitle: { ...TYPOGRAPHY.h3, color: COLORS.white, marginBottom: SPACING.md },
   stepsCard: {
     backgroundColor: COLORS.bg_card,

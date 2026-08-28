@@ -1,6 +1,6 @@
 import { useShallow } from 'zustand/react/shallow';
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
+import React, { useCallback, useState } from 'react';
+import { View, Text, StyleSheet, FlatList, TouchableOpacity, Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ArrowLeft } from 'lucide-react-native';
 import { useAppStore } from '../store/useAppStore';
@@ -24,6 +24,16 @@ export const GamesScreen = ({ onBack }: { onBack: () => void }) => {
     return () => { mounted = false; };
   }, [games]);
 
+  const renderGame = useCallback(({ item }: { item: any }) => (
+    <GameGridCard
+      game={item}
+      onPress={() => {
+        trackEvent('GAMES_PLAYED', 1);
+        setSelectedGame(item);
+      }}
+    />
+  ), [trackEvent]);
+
   return (
     <View style={styles.root}>
       <GamePlayerOverlay 
@@ -41,32 +51,35 @@ export const GamesScreen = ({ onBack }: { onBack: () => void }) => {
         </View>
       </View>
 
-      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        {loading ? (
-          <View style={styles.grid}>
-            {[1, 2, 3, 4, 5, 6].map((i) => (
-              <View key={`shimmer-${i}`} style={styles.shimmerCard} />
-            ))}
-          </View>
-        ) : games.length === 0 ? (
-          <View style={styles.emptyState}>
-            <Text style={styles.emptyText}>No games available right now.</Text>
-          </View>
-        ) : (
-          <View style={styles.grid}>
-            {games.map((game: any) => (
-              <GameGridCard 
-                key={game.id} 
-                game={game} 
-                onPress={() => {
-                  trackEvent('GAMES_PLAYED', 1);
-                  setSelectedGame(game);
-                }} 
-              />
-            ))}
-          </View>
-        )}
-      </ScrollView>
+      {loading ? (
+        <View style={[styles.grid, styles.scrollContent]}>
+          {[1, 2, 3, 4, 5, 6].map((i) => (
+            <View key={`shimmer-${i}`} style={styles.shimmerCard} />
+          ))}
+        </View>
+      ) : games.length === 0 ? (
+        <View style={styles.emptyState}>
+          <Text style={styles.emptyText}>No games available right now.</Text>
+        </View>
+      ) : (
+        // Windowed grid — this library ships 90+ games; a ScrollView.map()
+        // over all of them mounted ~90 native view subtrees and kicked off
+        // that many concurrent thumbnail fetches at once on screen open,
+        // the single worst list-perf offender in the app on low-end devices.
+        <FlatList
+          data={games}
+          keyExtractor={(game: any) => String(game.id)}
+          renderItem={renderGame}
+          numColumns={2}
+          columnWrapperStyle={styles.gridRow}
+          contentContainerStyle={styles.scrollContent}
+          showsVerticalScrollIndicator={false}
+          initialNumToRender={8}
+          maxToRenderPerBatch={6}
+          windowSize={7}
+          removeClippedSubviews={Platform.OS === 'android'}
+        />
+      )}
     </View>
   );
 };
@@ -112,6 +125,9 @@ const styles = StyleSheet.create({
   grid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
+    justifyContent: 'space-between',
+  },
+  gridRow: {
     justifyContent: 'space-between',
   },
   emptyState: {

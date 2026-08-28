@@ -35,7 +35,7 @@ export const DailyMissionsCard = ({ missions, onMoreMissions, onClaimReward }: D
   const rippleAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
-    Animated.loop(
+    const rippleLoop = Animated.loop(
       Animated.sequence([
         Animated.timing(rippleAnim, {
           toValue: 1,
@@ -48,7 +48,9 @@ export const DailyMissionsCard = ({ missions, onMoreMissions, onClaimReward }: D
           useNativeDriver: true,
         }),
       ])
-    ).start();
+    );
+    rippleLoop.start();
+    return () => rippleLoop.stop();
   }, [rippleAnim]);
 
   const rippleScale = rippleAnim.interpolate({

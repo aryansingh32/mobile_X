@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Animated, Easing, View, Text, StyleSheet, Image } from 'react-native';
+import { Animated, Easing, View, Text, StyleSheet } from 'react-native';
+import { Image } from 'expo-image';
 import { fetchMarqueeItems, MarqueeItem } from '../../api/marquee';
 
 const CHIP_MESSAGES_ROW1 = [
@@ -21,31 +22,45 @@ export const MarqueeRow = ({ items, direction, isBottom }: { items: MarqueeItem[
   useEffect(() => {
     if (contentWidth === 0) return;
 
+    // Restarts itself forever via the .start() completion callback — needs
+    // an explicit stop flag since there's no single Animated.loop object to
+    // .stop() on unmount, and this runs unconditionally on the Home screen.
+    let stopped = false;
+    let current: Animated.CompositeAnimation | null = null;
+
     const startAnimation = () => {
+      if (stopped) return;
       const startVal = direction === 'left' ? 0 : -contentWidth;
       const endVal = direction === 'left' ? -contentWidth : 0;
-      
+
       scrollX.setValue(startVal);
-      Animated.timing(scrollX, {
+      current = Animated.timing(scrollX, {
         toValue: endVal,
         duration: contentWidth * 25,
         easing: Easing.linear,
         useNativeDriver: true,
-      }).start(({ finished }) => {
-        if (finished) startAnimation();
+      });
+      current.start(({ finished }) => {
+        if (finished && !stopped) startAnimation();
       });
     };
 
     startAnimation();
+    return () => {
+      stopped = true;
+      current?.stop();
+    };
   }, [contentWidth, scrollX, direction]);
 
   const renderChips = (onLayout?: any) => (
     <View style={{ flexDirection: 'row' }} onLayout={onLayout}>
       {items.map((item, index) => (
         <View key={item.id || index} style={styles.chip}>
-          <Image 
+          <Image
             source={{ uri: item.imageUrl || `https://api.dicebear.com/7.x/avataaars/png?seed=${item.text.replace(/\\s/g, '')}${isBottom ? '2' : ''}` }}
             style={styles.chipAvatar}
+            cachePolicy="memory-disk"
+            priority="low"
           />
           <Text style={styles.chipText}>{item.text}</Text>
         </View>

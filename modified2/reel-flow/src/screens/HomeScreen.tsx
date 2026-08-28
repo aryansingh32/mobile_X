@@ -118,6 +118,11 @@ export const HomeScreen = ({
 
   const preloadedHomeAdRef = useRef<any>(null);
   const preloadedHomeAdReadyRef = useRef(false);
+  // streakClaimedToday comes from the Zustand store and only updates the
+  // component's closure on the *next* render, so a rapid double-tap on
+  // "Claim" before that render lands would otherwise pass the
+  // !streakClaimedToday check twice and fire syncStreak() twice.
+  const streakClaimInFlightRef = useRef(false);
 
   const preloadHomeRewardedAd = () => {
     if (!homeRewardAdUnitId || !deviceId) return;
@@ -425,10 +430,16 @@ export const HomeScreen = ({
   }, []);
 
   useEffect(() => {
-    if (deviceId) {
+    // preloadHomeRewardedAd() itself early-returns until homeRewardAdUnitId
+    // is also ready — without it in the deps, an ad-placement config that
+    // resolves after deviceId (common — it comes from a separate remote
+    // config fetch) means this effect never re-fires and the sponsored-card
+    // ad is never preloaded for the rest of the session.
+    if (deviceId && homeRewardAdUnitId) {
       preloadHomeRewardedAd();
     }
-  }, [deviceId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [deviceId, homeRewardAdUnitId]);
 
   const loadRouletteConfig = async () => {
     try {
@@ -450,12 +461,20 @@ export const HomeScreen = ({
     loadData();
   };
 
+  // Daily missions have no separate "claim" endpoint — the backend credits
+  // the reward automatically the moment telemetry proves the mission
+  // complete (see backend/src/routes/telemetry.ts), and that credit is
+  // already reflected in the `coins` balance this screen's last loadData()
+  // fetched. So this tap must NOT call updateBalance() again — doing so
+  // double-counts the reward in the client's optimistic balance, which then
+  // silently "reverts" the moment the next refresh pulls the true
+  // (already-correct, not-doubled) server balance. This is purely an
+  // acknowledge-and-hide-the-button UI action.
   const handleClaimReward = (missionId: string | number) => {
     setMissions((prev) =>
       prev.map((m) => {
         if (m.id === missionId) {
           const reward = m.rewardCoins ?? m.reward ?? 0;
-          updateBalance(reward);
           showToast(<View style={{flexDirection: 'row', alignItems: 'center'}}><Text style={{color: '#fff', fontSize: 14}}>Claimed {reward} </Text><VIBIcon size={14} /><Text style={{color: '#fff', fontSize: 14}}>!</Text></View>, 'success');
           return { ...m, claimed: true };
         }
@@ -601,17 +620,19 @@ export const HomeScreen = ({
             <TouchableOpacity
               style={styles.claimStreakBtn}
               onPress={async () => {
-                if (!streakClaimedToday) {
-                  try {
-                    const result = await syncStreak();
-                    if (result?.coinsEarned) updateBalance(result.coinsEarned);
-                    if (result?.streak !== undefined) setStreak(result.streak);
-                  } catch {
-                    // Silently continue — streak claimed UI state is enough
-                  }
-                  setStreakClaimedToday(true);
-                  showToast('Streak bonus claimed!', 'success');
+                if (streakClaimedToday || streakClaimInFlightRef.current) return;
+                streakClaimInFlightRef.current = true;
+                try {
+                  const result = await syncStreak();
+                  if (result?.coinsEarned) updateBalance(result.coinsEarned);
+                  if (result?.streak !== undefined) setStreak(result.streak);
+                } catch {
+                  // Silently continue — streak claimed UI state is enough
+                } finally {
+                  streakClaimInFlightRef.current = false;
                 }
+                setStreakClaimedToday(true);
+                showToast('Streak bonus claimed!', 'success');
               }}
               accessibilityRole="button"
               accessibilityLabel="Claim streak bonus"

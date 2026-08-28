@@ -19,8 +19,16 @@ const FloatingChip = ({ text, delay = 0, style }: { text: React.ReactNode, delay
   const floatAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
+    // Restarts itself forever via the .start() completion callback — 7 of
+    // these chips are mounted at once on AuthScreen, none of it was ever
+    // stopped on unmount, so navigating away (e.g. after a successful
+    // login) left every chip's animation still ticking in the background.
+    let stopped = false;
+    let current: Animated.CompositeAnimation | null = null;
+
     const startFloating = () => {
-      Animated.sequence([
+      if (stopped) return;
+      current = Animated.sequence([
         Animated.timing(floatAnim, {
           toValue: 1,
           duration: 2500,
@@ -33,12 +41,18 @@ const FloatingChip = ({ text, delay = 0, style }: { text: React.ReactNode, delay
           easing: Easing.inOut(Easing.sin),
           useNativeDriver: true,
         })
-      ]).start(() => startAnimation());
+      ]);
+      current.start(({ finished }) => {
+        if (finished && !stopped) startFloating();
+      });
     };
-    
-    // eslint-disable-next-line @typescript-eslint/no-empty-function
-    let startAnimation = startFloating;
-    setTimeout(startFloating, delay);
+
+    const timer = setTimeout(startFloating, delay);
+    return () => {
+      stopped = true;
+      clearTimeout(timer);
+      current?.stop();
+    };
   }, [floatAnim, delay]);
 
   const translateY = floatAnim.interpolate({
@@ -102,7 +116,9 @@ export const AuthScreen = () => {
     GoogleSignin.configure({
       webClientId: process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID || '',
     });
-    
+  }, []);
+
+  useEffect(() => {
     if (isImageLoaded) {
       Animated.parallel([
         Animated.timing(fadeAnim, { toValue: 1, duration: 800, useNativeDriver: true }),
