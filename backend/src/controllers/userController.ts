@@ -1,6 +1,6 @@
 import { Request, Response } from 'express';
 import prisma from '../config/db';
-import { updateStreak } from '../services/expService';
+import { updateStreak, getLevelThresholds } from '../services/expService';
 import { addLedgerEntry, getBalance } from '../services/ledgerService';
 import requestIp from 'request-ip';
 import { sendServerError } from '../utils/errorResponse';
@@ -60,6 +60,7 @@ export const getProfile = async (req: any, res: Response) => {
       levelBonusInterval,
       rouletteAdsWatchedToday,
       rouletteSpinsToday,
+      levelThresholds,
     ] = await Promise.all([
       getBalance(user.id),
       prisma.coinLedger.count({
@@ -101,6 +102,7 @@ export const getProfile = async (req: any, res: Response) => {
           timestamp: { gte: todayStart },
         },
       }),
+      getLevelThresholds(),
     ]);
 
     // Level-tied perk (kept identical to claimRouletteSpin's calc): every N
@@ -121,6 +123,7 @@ export const getProfile = async (req: any, res: Response) => {
         coinToInrRate,
         minWithdrawalCoins,
         rouletteChancesRemaining,
+        levelThresholds,
         config: {
           daily_ad_cap: dailyAdCap,
           coin_to_inr_rate: coinToInrRate,

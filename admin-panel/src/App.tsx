@@ -5,7 +5,7 @@ import {
   ShieldCheck, Users, AlertTriangle, CreditCard, LayoutDashboard,
   Activity, Database, Settings, ShoppingBag,
   Radio, FileCode, Shield, LineChart, Target, Bell, FlaskConical, Network, CheckSquare,
-  LogOut, FileText, Layers, Terminal, MessageSquare, Filter, Play, Award, Trophy, Megaphone
+  LogOut, FileText, Layers, Terminal, MessageSquare, Filter, Play, Award, Trophy, Megaphone, TrendingUp
 } from 'lucide-react';
 
 import AdminLogin from './pages/AdminLogin';
@@ -48,6 +48,8 @@ import TrendingShorts from './pages/TrendingShorts';
 import BadgesPage from './pages/Badges';
 import LeaderboardPage from './pages/Leaderboard';
 import MarqueePage from './pages/Marquee';
+import ProgressionPage from './pages/Progression';
+import ContentStringsPage from './pages/ContentStrings';
 
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID;
 
@@ -90,6 +92,8 @@ const Sidebar = ({ onLogout }: { onLogout: () => void }) => {
         <NavLink to="/badges" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}><Award size={20} /> Badges</NavLink>
         <NavLink to="/leaderboard" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}><Trophy size={20} /> Leaderboard</NavLink>
         <NavLink to="/marquee" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}><Megaphone size={20} /> Social-Proof Feed</NavLink>
+        <NavLink to="/progression" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}><TrendingUp size={20} /> Progression</NavLink>
+        <NavLink to="/content-strings" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}><FileText size={20} /> Content Strings</NavLink>
         
         <div className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2 mt-6 px-4">Content & News</div>
         <NavLink to="/news-dashboard" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}><Activity size={20} /> News Dashboard</NavLink>
@@ -227,6 +231,8 @@ const App = () => {
               <Route path="/badges" element={<BadgesPage />} />
               <Route path="/leaderboard" element={<LeaderboardPage />} />
               <Route path="/marquee" element={<MarqueePage />} />
+              <Route path="/progression" element={<ProgressionPage />} />
+              <Route path="/content-strings" element={<ContentStringsPage />} />
               <Route path="/fraud" element={<FraudLogs />} />
               <Route path="/security" element={<SecurityLogs />} />
               <Route path="/content" element={<ContentPage />} />

@@ -55,21 +55,23 @@ export interface HomeScreenHandle {
   handleBack: () => boolean;
 }
 
-// Mirrors backend/src/services/expService.ts LEVEL_REQUIREMENTS exactly —
-// the XP bar previously used `xp % 100`, which treats every level as
+// Fallback only, used until the first getProfile() response lands — the
+// backend now owns this table (services/expService.ts, admin-editable via
+// the Progression page) and serves it as `levelThresholds` on every profile
+// fetch. The XP bar previously used `xp % 100`, which treats every level as
 // needing a flat 100 XP even though the real thresholds jump from 100 to
 // 900 XP apart, so the bar looped several times inside a single level and
-// stopped meaning anything past level 2.
-const LEVEL_REQUIREMENTS: Record<number, number> = {
-  1: 0, 2: 100, 3: 300, 4: 600, 5: 1000,
-  6: 1500, 7: 2100, 8: 2800, 9: 3600, 10: 4500,
-};
-const MAX_LEVEL = 10;
+// stopped meaning anything past level 2. There is no hardcoded level cap
+// here anymore — however many thresholds the admin defines is how many
+// levels exist.
+const DEFAULT_LEVEL_THRESHOLDS = [0, 100, 300, 600, 1000, 1500, 2100, 2800, 3600, 4500];
 
-const getLevelTier = (level: number) => {
-  if (level >= MAX_LEVEL) return { label: 'Platinum', color: '#B9E5FF' };
-  if (level >= 7) return { label: 'Gold', color: '#FFD700' };
-  if (level >= 4) return { label: 'Silver', color: '#D8D8D8' };
+// Tier bands scale to however many levels are actually configured, instead
+// of being pinned to a hardcoded level 10 cap.
+const getLevelTier = (level: number, maxLevel: number) => {
+  if (level >= maxLevel) return { label: 'Platinum', color: '#B9E5FF' };
+  if (level >= maxLevel * 0.7) return { label: 'Gold', color: '#FFD700' };
+  if (level >= maxLevel * 0.4) return { label: 'Silver', color: '#D8D8D8' };
   return { label: 'Bronze', color: '#E0A96D' };
 };
 
@@ -136,18 +138,20 @@ export const HomeScreen = React.forwardRef<HomeScreenHandle, HomeScreenProps>(({
   const [rouletteConfigLoading, setRouletteConfigLoading] = useState(false);
   const [deviceId, setDeviceId] = useState<string | null>(null);
   const [freezePurchasing, setFreezePurchasing] = useState(false);
+  const [levelThresholds, setLevelThresholds] = useState<number[]>(DEFAULT_LEVEL_THRESHOLDS);
   // Only diffed against on the SECOND+ load in this component's lifetime —
   // the first load just establishes the baseline, so restoring a persisted
   // (already-current) level on mount never fires a false "level up" toast.
   const previousLevelRef = useRef<number | null>(null);
 
-  const levelTier = useMemo(() => getLevelTier(level || 1), [level]);
+  const maxLevel = levelThresholds.length;
+  const levelTier = useMemo(() => getLevelTier(level || 1, maxLevel), [level, maxLevel]);
   const xpProgress = useMemo(() => {
-    if (level >= MAX_LEVEL) return 1;
-    const currentReq = LEVEL_REQUIREMENTS[level] ?? 0;
-    const nextReq = LEVEL_REQUIREMENTS[level + 1] ?? currentReq + 1;
+    if (level >= maxLevel) return 1;
+    const currentReq = levelThresholds[level - 1] ?? 0;
+    const nextReq = levelThresholds[level] ?? currentReq + 1;
     return Math.max(0, Math.min(1, (xp - currentReq) / Math.max(1, nextReq - currentReq)));
-  }, [xp, level]);
+  }, [xp, level, levelThresholds, maxLevel]);
   const walletGoalProgress = useMemo(
     () => Math.min(1, coinBalance / Math.max(1, minWithdrawalCoins)),
     [coinBalance, minWithdrawalCoins]
@@ -414,6 +418,14 @@ export const HomeScreen = React.forwardRef<HomeScreenHandle, HomeScreenProps>(({
   ) => {
     setBalance(profile?.coins ?? 0);
     setXp(profile?.xp ?? 0);
+    // Admin-editable via the Progression page (backend/src/services/expService.ts
+    // owns the real table) — set this before computing the tier below so a
+    // level-up toast on the very first response after an admin changes the
+    // thresholds still uses the up-to-date max level.
+    const newThresholds: number[] = Array.isArray(profile?.levelThresholds) && profile.levelThresholds.length > 0
+      ? profile.levelThresholds
+      : DEFAULT_LEVEL_THRESHOLDS;
+    setLevelThresholds(newThresholds);
     const newLevel = profile?.level ?? 1;
     // Give a level-up a body — the backend already computes this on every
     // XP gain, it just never reached the client as anything more than a
@@ -421,7 +433,7 @@ export const HomeScreen = React.forwardRef<HomeScreenHandle, HomeScreenProps>(({
     // (see previousLevelRef) so restoring a persisted level on mount never
     // triggers a false celebration.
     if (previousLevelRef.current !== null && newLevel > previousLevelRef.current) {
-      const tier = getLevelTier(newLevel);
+      const tier = getLevelTier(newLevel, newThresholds.length);
       showToast(
         <View style={{ flexDirection: 'row', alignItems: 'center' }}>
           <Text style={{ color: '#fff', fontSize: 14, fontWeight: '700' }}>🎉 Level Up! Now Level {newLevel} · </Text>

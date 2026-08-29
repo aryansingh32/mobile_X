@@ -3,9 +3,82 @@ import { addLedgerEntry } from './ledgerService';
 import { sendToUser } from './notificationService';
 import { checkAndAwardBadges } from './badgeService';
 
-export const LEVEL_REQUIREMENTS: Record<number, number> = {
-  1: 0, 2: 100, 3: 300, 4: 600, 5: 1000,
-  6: 1500, 7: 2100, 8: 2800, 9: 3600, 10: 4500,
+// Used only until the first real config read resolves, and as the fallback
+// when an admin hasn't touched `level_xp_thresholds` yet or has set it to
+// something unparseable. thresholds[i] is the cumulative XP required to BE
+// level i+1 — level = 1 + how many thresholds the user's XP has cleared, so
+// the level cap is simply however many entries the admin-managed array has,
+// not a number baked into this file.
+const DEFAULT_LEVEL_THRESHOLDS = [0, 100, 300, 600, 1000, 1500, 2100, 2800, 3600, 4500];
+
+const parseLevelThresholds = (raw: string | undefined): number[] => {
+  if (!raw) return DEFAULT_LEVEL_THRESHOLDS;
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed) || parsed.length === 0) return DEFAULT_LEVEL_THRESHOLDS;
+    const nums = parsed.map((n) => Number(n)).filter((n) => Number.isFinite(n));
+    if (nums.length === 0) return DEFAULT_LEVEL_THRESHOLDS;
+    // Admin panel already sorts/validates on save, but never trust stored
+    // config blindly — a hand-edited row could still be out of order.
+    return [...nums].sort((a, b) => a - b);
+  } catch {
+    return DEFAULT_LEVEL_THRESHOLDS;
+  }
+};
+
+// Exported so getProfile (userController.ts) can serve the SAME thresholds
+// the backend actually levels users against — the mobile app used to keep
+// its own hardcoded copy of this table for the XP bar, which could silently
+// drift from whatever this file said the moment either one changed.
+export const getLevelThresholds = async (): Promise<number[]> => {
+  const config = await prisma.appConfig.findUnique({ where: { key: 'level_xp_thresholds' } });
+  return parseLevelThresholds(config?.value);
+};
+
+export type StreakMilestone = { day: number; bonusCoins: number; title: string; body: string };
+
+const DEFAULT_STREAK_MILESTONES: StreakMilestone[] = [
+  { day: 7, bonusCoins: 100, title: '🔥 7-Day Streak!', body: 'Amazing! You earned {coins} bonus coins!' },
+  { day: 30, bonusCoins: 500, title: '🏆 30-Day Streak!', body: 'Incredible! You earned {coins} bonus coins and a special badge!' },
+  { day: 100, bonusCoins: 2000, title: '💯 100-Day Streak!', body: 'Unbelievable! You earned {coins} bonus coins!' },
+];
+
+const parseStreakMilestones = (raw: string | undefined): StreakMilestone[] => {
+  if (!raw) return DEFAULT_STREAK_MILESTONES;
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed) || parsed.length === 0) return DEFAULT_STREAK_MILESTONES;
+    const milestones = parsed
+      .map((m: any): StreakMilestone | null => {
+        const day = Number(m?.day);
+        const bonusCoins = Number(m?.bonusCoins);
+        if (!Number.isFinite(day) || day <= 0 || !Number.isFinite(bonusCoins) || bonusCoins < 0) return null;
+        return {
+          day,
+          bonusCoins,
+          title: typeof m?.title === 'string' && m.title.trim() ? m.title : `🎉 ${day}-Day Streak!`,
+          body: typeof m?.body === 'string' && m.body.trim() ? m.body : 'You earned {coins} bonus coins!',
+        };
+      })
+      .filter((m: StreakMilestone | null): m is StreakMilestone => m !== null);
+    return milestones.length > 0 ? milestones : DEFAULT_STREAK_MILESTONES;
+  } catch {
+    return DEFAULT_STREAK_MILESTONES;
+  }
+};
+
+export const getStreakMilestones = async (): Promise<StreakMilestone[]> => {
+  const config = await prisma.appConfig.findUnique({ where: { key: 'streak_milestones' } });
+  return parseStreakMilestones(config?.value);
+};
+
+const computeLevelForXp = (xp: number, thresholds: number[]): number => {
+  let level = 1;
+  for (let i = 0; i < thresholds.length; i++) {
+    if (xp >= thresholds[i]!) level = i + 1;
+    else break;
+  }
+  return level;
 };
 
 export const addExp = async (userId: number, xpToAdd: number) => {
@@ -19,18 +92,13 @@ export const addExp = async (userId: number, xpToAdd: number) => {
   // called concurrently for the same user (e.g. two reward claims landing
   // at once would otherwise both read the same starting xp and the second
   // write would silently overwrite the first).
-  const updatedUser = await prisma.user.update({
-    where: { id: userId },
-    data: { xp: { increment: xpToAdd } },
-  });
+  const [updatedUser, thresholds] = await Promise.all([
+    prisma.user.update({ where: { id: userId }, data: { xp: { increment: xpToAdd } } }),
+    getLevelThresholds(),
+  ]);
 
   const previousLevel = updatedUser.level;
-  let newLevel = previousLevel;
-  let nextLevelReq = LEVEL_REQUIREMENTS[newLevel + 1];
-  while (nextLevelReq !== undefined && updatedUser.xp >= nextLevelReq) {
-    newLevel++;
-    nextLevelReq = LEVEL_REQUIREMENTS[newLevel + 1];
-  }
+  const newLevel = computeLevelForXp(updatedUser.xp, thresholds);
 
   if (newLevel !== previousLevel) {
     await prisma.user.update({ where: { id: userId }, data: { level: newLevel } });
@@ -98,37 +166,17 @@ export const updateStreak = async (userId: number) => {
 
   checkAndAwardBadges(userId, 'STREAK', newStreak).catch(() => undefined);
 
-  // Streak milestone rewards with concurrency locks (idempotency keys)
-  if (newStreak === 7) {
-    const bonus7Config = await prisma.appConfig.findUnique({ where: { key: 'streak_bonus_7' } });
-    const bonus = bonus7Config ? parseInt(bonus7Config.value) : 100;
+  // Streak milestone rewards — the day numbers, bonus amounts, and even the
+  // notification copy all come from one admin-editable list (`streak_milestones`
+  // AppConfig JSON) instead of three separate hardcoded `if (newStreak === N)`
+  // blocks. That previously meant the highest reachable milestone was day 30,
+  // hard-baked into this file — an admin can now add day 14, day 60, day 365,
+  // whatever the retention strategy calls for, with no deploy.
+  const milestone = (await getStreakMilestones()).find((m) => m.day === newStreak);
+  if (milestone) {
     try {
-      await addLedgerEntry(userId, bonus, 'STREAK_BONUS_7', 'system', `streak-7-${userId}-${todayStr}`);
-      sendToUser(userId, '🔥 7-Day Streak!', `Amazing! You earned ${bonus} bonus coins!`, 'STREAK').catch(() => {});
-    } catch (e: any) {
-      if (e.code !== 'P2002') throw e; // ignore duplicate claim
-    }
-  }
-
-  if (newStreak === 30) {
-    const bonus30Config = await prisma.appConfig.findUnique({ where: { key: 'streak_bonus_30' } });
-    const bonus = bonus30Config ? parseInt(bonus30Config.value) : 500;
-    try {
-      await addLedgerEntry(userId, bonus, 'STREAK_BONUS_30', 'system', `streak-30-${userId}-${todayStr}`);
-      sendToUser(userId, '🏆 30-Day Streak!', `Incredible! You earned ${bonus} bonus coins and a special badge!`, 'STREAK').catch(() => {});
-    } catch (e: any) {
-      if (e.code !== 'P2002') throw e; // ignore duplicate claim
-    }
-  }
-
-  // Previously the highest streak milestone in the app was day 30 — anyone
-  // who kept going past that got nothing further to aim for.
-  if (newStreak === 100) {
-    const bonus100Config = await prisma.appConfig.findUnique({ where: { key: 'streak_bonus_100' } });
-    const bonus = bonus100Config ? parseInt(bonus100Config.value) : 2000;
-    try {
-      await addLedgerEntry(userId, bonus, 'STREAK_BONUS_100', 'system', `streak-100-${userId}-${todayStr}`);
-      sendToUser(userId, '💯 100-Day Streak!', `Unbelievable! You earned ${bonus} bonus coins!`, 'STREAK').catch(() => {});
+      await addLedgerEntry(userId, milestone.bonusCoins, `STREAK_BONUS_${milestone.day}`, 'system', `streak-${milestone.day}-${userId}-${todayStr}`);
+      sendToUser(userId, milestone.title, milestone.body.replace('{coins}', String(milestone.bonusCoins)), 'STREAK').catch(() => {});
     } catch (e: any) {
       if (e.code !== 'P2002') throw e; // ignore duplicate claim
     }

@@ -17,6 +17,7 @@ type ConfigCategory = {
 const descriptions: Record<string, string> = {
   short_watch_seconds_required: 'Seconds watched before a Short session is tracked.',
   short_watch_reward_coins: 'Coins per Short (set to 0 — coins come from ads only).',
+  short_daily_cap: 'Maximum short-video watch sessions counted per user each day.',
   daily_ad_cap: 'Maximum rewarded ads credited per user each day.',
   min_withdrawal_coins: 'Minimum coins required for redemption.',
   offerwall_demo_mode: 'Set to true to expose demo offerwall tasks.',
@@ -24,24 +25,20 @@ const descriptions: Record<string, string> = {
   daily_bonus_coins: 'Coins awarded for daily login bonus.',
   ad_cooldown_seconds: 'Minimum seconds between rewarded ad claims.',
   coin_to_inr_rate: 'Exchange rate: coins to INR (e.g. 0.10 = 10 coins per ₹1).',
-  referral_percent: "Percentage of referred user's withdrawals earned by referrer.",
-  max_level: 'Maximum user level achievable.',
-  xp_per_level: 'Base XP required per level.',
-  streak_bonus_multiplier: 'Coins per streak day (e.g. 5 = day3 gets 15 coins). Capped at 50.',
   ad_rewarded_coins: 'Coins for watching a full rewarded video ad.',
   ad_rewarded_interstitial_coins: 'Coins for rewarded interstitial ad (between shorts).',
   ad_rewarded_discover_coins: 'Coins for rewarded ad in discover feed.',
   admob_android_app_id: 'Android AdMob app ID used in the native manifest at build time.',
   admob_android_app_open_ad_unit_id: 'App open ad unit for app launch and foreground resume.',
   admob_android_rewarded_card_ad_unit_id: 'Rewarded ad unit used by opt-in card ads.',
+  admob_android_rewarded_discover_ad_unit_id: 'Rewarded ad unit used specifically by Discover-feed ad cards.',
   admob_android_rewarded_interstitial_card_ad_unit_id: 'Rewarded interstitial ad unit used between cards/shorts.',
   admob_android_game_completion_ad_unit_id: 'Interstitial ad unit shown after game completion or game exit.',
+  admob_android_interstitial_nav_ad_unit_id: 'Interstitial ad unit shown on tab/nav transitions.',
+  admob_android_wallet_interstitial_ad_unit_id: 'Interstitial ad unit shown when switching into Wallet.',
   admob_android_native_ad_unit_id: 'Native advanced ad unit available for native feed placements.',
   admob_android_news_banner_ad_unit_id: 'Banner ad unit shown on news/article detail screens.',
   xp_per_coin_ratio: 'Coins earned per 1 XP awarded (e.g. 2 = 1 XP per 2 coins).',
-  streak_bonus_7: 'Bonus coins for reaching 7-day streak milestone.',
-  streak_bonus_30: 'Bonus coins for reaching 30-day streak milestone.',
-  streak_bonus_100: 'Bonus coins for reaching 100-day streak milestone.',
   signup_bonus_coins: 'One-time coins credited the moment a new account is created.',
   streak_freeze_cost_coins: 'Coin cost to buy one streak-freeze token (auto-protects the next missed day).',
   streak_freeze_max: 'Maximum streak-freeze tokens a user can hold at once.',
@@ -69,7 +66,7 @@ const categories: ConfigCategory[] = [
     title: '🎯 Limits & Caps',
     subtitle: 'Fraud-resistant earning and redemption boundaries.',
     tone: 'limits',
-    keys: ['daily_ad_cap', 'ad_cooldown_seconds', 'min_withdrawal_coins'],
+    keys: ['daily_ad_cap', 'ad_cooldown_seconds', 'min_withdrawal_coins', 'short_daily_cap'],
   },
   {
     title: '📡 AdMob',
@@ -79,31 +76,27 @@ const categories: ConfigCategory[] = [
       'admob_android_app_id',
       'admob_android_app_open_ad_unit_id',
       'admob_android_rewarded_card_ad_unit_id',
+      'admob_android_rewarded_discover_ad_unit_id',
       'admob_android_rewarded_interstitial_card_ad_unit_id',
       'admob_android_game_completion_ad_unit_id',
+      'admob_android_interstitial_nav_ad_unit_id',
+      'admob_android_wallet_interstitial_ad_unit_id',
       'admob_android_native_ad_unit_id',
       'admob_android_news_banner_ad_unit_id',
     ],
   },
   {
-    title: '🔥 Streaks & XP',
-    subtitle: 'Retention multipliers, milestones, and progression.',
-    tone: 'streaks',
-    keys: ['streak_bonus_multiplier', 'streak_bonus_7', 'streak_bonus_30', 'xp_per_level', 'xp_per_coin_ratio', 'max_level'],
-  },
-  {
     title: '🎮 App Behavior',
     subtitle: 'Runtime behavior switches and interaction timing.',
     tone: 'behavior',
-    keys: ['short_watch_seconds_required', 'offerwall_demo_mode', 'post_ad_lockout_ms', 'referral_percent'],
+    keys: ['short_watch_seconds_required', 'offerwall_demo_mode', 'post_ad_lockout_ms', 'xp_per_coin_ratio'],
   },
   {
     title: '🛡️ Retention & Engagement',
-    subtitle: 'Signup bonus, streak freezes, and the Discover read-reward — see the ReelFlow Dopamine Audit roadmap.',
+    subtitle: 'Signup bonus, streak freezes, and the Discover read-reward. Level XP thresholds and streak-milestone bonuses now live on the Progression page; referral commission rates and tier-escalation timing live on the Referral Tree page.',
     tone: 'retention',
     keys: [
       'signup_bonus_coins',
-      'streak_bonus_100',
       'streak_freeze_cost_coins',
       'streak_freeze_max',
       'read_reward_xp',
@@ -345,7 +338,9 @@ const ConfigPage = () => {
               <Settings className="mr-3 text-[#FFD700]" /> System Configuration
             </h1>
             <p className="mt-2 max-w-2xl text-sm leading-6 text-white/60">
-              Admin-controlled runtime values for rewards, caps, streaks, XP, and app behavior. Revenue-critical settings are flagged before edits.
+              Admin-controlled runtime values for rewards, caps, and app behavior. Revenue-critical settings are flagged before edits.
+              Level/streak progression lives on <span className="font-semibold text-white/80">Progression</span>, referral rates on{' '}
+              <span className="font-semibold text-white/80">Referral Tree</span>, roulette on <span className="font-semibold text-white/80">Roulette Config</span>.
             </p>
           </div>
           <button
