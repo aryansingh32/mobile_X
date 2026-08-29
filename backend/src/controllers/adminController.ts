@@ -8,6 +8,7 @@ import path from 'path';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import { sendServerError } from '../utils/errorResponse';
+import { parsePagination } from '../utils/pagination';
 
 const execFileAsync = promisify(execFile);
 
@@ -84,8 +85,7 @@ const buildUserListWhere = (query: Request['query']) => {
 
 export const getAllUsers = async (req: Request, res: Response) => {
   try {
-    const limit = Math.min(parseInt(req.query.limit as string) || 50, 200);
-    const offset = parseInt(req.query.offset as string) || 0;
+    const { limit, offset } = parsePagination(req.query, { fallback: 50, max: 200 });
     const where = buildUserListWhere(req.query);
 
     const sortByRaw = String(req.query.sortBy || 'createdAt');
@@ -201,8 +201,7 @@ export const updateUserMetrics = async (req: Request, res: Response): Promise<vo
 
 export const getWithdrawals = async (req: Request, res: Response) => {
   try {
-    const limit = Math.min(parseInt(req.query.limit as string) || 50, 100);
-    const offset = parseInt(req.query.offset as string) || 0;
+    const { limit, offset } = parsePagination(req.query, { fallback: 50, max: 100 });
     const status = typeof req.query.status === 'string' ? req.query.status.trim().toUpperCase() : '';
     const where = status ? { status } : undefined;
 
@@ -751,8 +750,7 @@ export const getLeaderboardAdmin = async (req: Request, res: Response) => {
 // grepping raw log files.
 export const getErrorLogs = async (req: Request, res: Response) => {
   try {
-    const limit = Math.min(parseInt(req.query.limit as string) || 50, 200);
-    const offset = parseInt(req.query.offset as string) || 0;
+    const { limit, offset } = parsePagination(req.query, { fallback: 50, max: 200 });
     const userId = req.query.userId ? parseInt(req.query.userId as string) : undefined;
     const statusCode = req.query.statusCode ? parseInt(req.query.statusCode as string) : undefined;
     const search = typeof req.query.search === 'string' ? req.query.search.trim() : '';

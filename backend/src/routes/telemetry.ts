@@ -9,6 +9,17 @@ const router = Router();
 
 const VALID_PLATFORMS = new Set(['ios', 'android', 'web']);
 
+// Telemetry counts drive lifetime totals, mission progress and badge awards,
+// all of which are increments. A negative or absurd count from a tampered
+// client could rewind a counter or complete a mission in one call, so clamp
+// before anything downstream sees it.
+const MAX_EVENT_COUNT = 1000;
+const sanitizeCount = (raw: unknown): number => {
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed)) return 1;
+  return Math.min(Math.max(Math.floor(parsed), 0), MAX_EVENT_COUNT);
+};
+
 // ── POST /client-error — crash/error reports from a real user's device ───────
 // Without this, a crash on a user's phone is invisible: the app renders the
 // ErrorBoundary's generic screen and the stack dies with the process. These
@@ -117,7 +128,8 @@ async function processTelemetryEvent(userId: number, eventType: string, count: n
 
 // ── POST /track — single event (backward compatible) ─────────────────────────
 router.post('/track', authenticate, async (req: any, res) => {
-  const { eventType, count = 1 } = req.body;
+  const { eventType } = req.body;
+  const count = sanitizeCount(req.body?.count ?? 1);
   const userId = req.user.id;
 
   if (!eventType) return res.status(400).json({ error: 'eventType is required' });
@@ -145,7 +157,8 @@ router.post('/batch', authenticate, async (req: any, res) => {
   const results: { eventType: string; success: boolean; error?: string }[] = [];
 
   for (const event of events) {
-    const { eventType, count = 1 } = event;
+    const { eventType } = event ?? {};
+    const count = sanitizeCount(event?.count ?? 1);
     if (!eventType) {
       results.push({ eventType: 'unknown', success: false, error: 'missing eventType' });
       continue;

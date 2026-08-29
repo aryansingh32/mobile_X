@@ -402,12 +402,22 @@ export const purchaseStreakFreeze = async (req: any, res: Response): Promise<voi
     const cost = await getConfigInt('streak_freeze_cost_coins', 50);
     const maxFreezes = await getConfigInt('streak_freeze_max', 3);
 
-    const user = await prisma.user.findUnique({ where: { id: userId }, select: { streakFreezes: true } });
-    if (!user) {
+    const exists = await prisma.user.findUnique({ where: { id: userId }, select: { id: true } });
+    if (!exists) {
       res.status(404).json({ error: 'User not found' });
       return;
     }
-    if (user.streakFreezes >= maxFreezes) {
+
+    // Claim a slot atomically rather than read-check-then-write: the cap is
+    // enforced inside the UPDATE's WHERE, so two concurrent purchases can't
+    // both observe "under the cap" and both increment past it. Postgres
+    // re-evaluates the predicate after taking the row lock, so exactly one of
+    // a concurrent pair matches at the boundary.
+    const claimed = await prisma.user.updateMany({
+      where: { id: userId, streakFreezes: { lt: maxFreezes } },
+      data: { streakFreezes: { increment: 1 } },
+    });
+    if (claimed.count === 0) {
       res.status(400).json({ error: `You already have the maximum of ${maxFreezes} streak freezes` });
       return;
     }
@@ -416,16 +426,21 @@ export const purchaseStreakFreeze = async (req: any, res: Response): Promise<voi
     try {
       await addLedgerEntry(userId, -cost, 'STREAK_FREEZE_PURCHASE', clientIp, `streak-freeze-${userId}-${Date.now()}`);
     } catch (e: any) {
+      // The slot was taken before payment, so hand it back rather than
+      // leaving the user holding a freeze they never paid for.
+      await prisma.user.update({
+        where: { id: userId },
+        data: { streakFreezes: { decrement: 1 } },
+      }).catch(() => undefined);
       res.status(400).json({ error: e.message === 'Insufficient coin balance' ? 'Not enough coins' : 'Purchase failed' });
       return;
     }
 
-    const updated = await prisma.user.update({
+    const updated = await prisma.user.findUnique({
       where: { id: userId },
-      data: { streakFreezes: { increment: 1 } },
       select: { streakFreezes: true },
     });
-    res.json({ streakFreezes: updated.streakFreezes, coinsCost: cost });
+    res.json({ streakFreezes: updated?.streakFreezes ?? 0, coinsCost: cost });
   } catch (error: any) {
     sendServerError(res, error);
   }

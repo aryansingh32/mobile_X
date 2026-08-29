@@ -120,6 +120,11 @@ model Withdrawal {
   payoutMethod    String
   destinationId   String
   catalogItemId   Int?
+  // The admin withdrawal queue drives the whole fulfillment workflow off the
+  // redeemed item's type (voucher vs physical), so it needs the relation, not
+  // just the id. Its absence made adminController's `include: { catalogItem }`
+  // invalid, which 500'd the entire queue.
+  catalogItem     CatalogItem? @relation(fields: [catalogItemId], references: [id])
   catalogCode     CatalogCode?
   requestedAt     DateTime  @default(now())
   processedAt     DateTime?
@@ -364,6 +369,7 @@ model CatalogItem {
   stock       Int      @default(-1)   // -1 = unlimited
   createdAt   DateTime @default(now())
   codes       CatalogCode[]
+  withdrawals Withdrawal[]
 }
 
 model CatalogCode {

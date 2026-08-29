@@ -727,6 +727,201 @@ async function testClientCrashReporting() {
   assertEqual((serverOnly.data.data ?? []).length, 0, "filtering to SERVER excludes this user's app crashes");
 }
 
+async function testAuthorizationAndIsolation() {
+  section('Authorization — role separation, tenant isolation, banned accounts');
+
+  const victim = await createTestUser();
+  const attacker = await createTestUser();
+
+  // ── IDOR: one user must never reach another user's rows ──────────────────
+  const victimNotification = await prisma.notification.create({
+    data: { userId: victim.user.id, title: 'Private', body: 'victim only', type: 'SYSTEM' },
+  });
+  const stealRead = await attacker.client.put(`/api/users/notifications/${victimNotification.id}/read`);
+  assertStatus(stealRead.status, 404, "a user cannot mark another user's notification as read");
+  const stillUnread = await prisma.notification.findUnique({ where: { id: victimNotification.id } });
+  assertEqual(stillUnread?.read, false, "the victim's notification is genuinely untouched");
+
+  const attackerProfile = await attacker.client.get('/api/users/profile');
+  assertEqual(attackerProfile.data?.data?.id ?? attackerProfile.data?.id, attacker.user.id,
+    'the profile endpoint returns the caller, never a user id supplied by the caller');
+
+  // ── Role separation between admin tiers ──────────────────────────────────
+  const financeAdmin = await createTestUser({ role: 'FINANCE_ADMIN' });
+  const fraudAnalyst = await createTestUser({ role: 'FRAUD_ANALYST' });
+  const superAdmin = await createTestUser({ role: 'SUPER_ADMIN' });
+
+  const financeAtErrorLogs = await financeAdmin.client.get('/api/admin/error-logs');
+  assertStatus(financeAtErrorLogs.status, 403, 'a finance admin cannot read super-admin-only error logs');
+  const fraudAtEnv = await fraudAnalyst.client.get('/api/admin/env');
+  assertStatus(fraudAtEnv.status, 403, 'a fraud analyst cannot read the environment config');
+  const fraudAtWithdrawals = await fraudAnalyst.client.get('/api/admin/withdrawals');
+  assertStatus(fraudAtWithdrawals.status, 403, 'a fraud analyst cannot read the withdrawal queue');
+  const financeAtWithdrawals = await financeAdmin.client.get('/api/admin/withdrawals');
+  assertStatus(financeAtWithdrawals.status, 200, 'a finance admin CAN read the withdrawal queue');
+  const superAtEnv = await superAdmin.client.get('/api/admin/env');
+  assertStatus(superAtEnv.status, 200, 'a super admin can read everything the lower roles cannot');
+
+  // A plain user must not reach any admin surface, whichever tier guards it.
+  const plainAtBalance = await attacker.client.post(`/api/admin/users/${victim.user.id}/balance`, { amount: 999999 });
+  assertStatus(plainAtBalance.status, 403, 'a regular user cannot credit themselves via the admin balance endpoint');
+  const balanceAfter = await prisma.coinLedger.aggregate({ where: { userId: victim.user.id }, _sum: { amount: true } });
+  assert((balanceAfter._sum.amount ?? 0) < 999999, 'the rejected admin call did not move any coins');
+
+  // ── Role is taken from the server's own record, not the token ────────────
+  const forgedRoleToken = jwt.sign({ id: attacker.user.id, role: 'SUPER_ADMIN' }, JWT_SECRET, { expiresIn: '30d' });
+  const forgedClient = signedRequest(forgedRoleToken);
+  const forgedRes = await forgedClient.get('/api/admin/error-logs');
+  assertStatus(forgedRes.status, 403, 'a role claim smuggled into the JWT is ignored — the DB record decides');
+
+  // ── A token signed with the wrong secret is worthless ────────────────────
+  const wrongSecretToken = jwt.sign({ id: superAdmin.user.id }, 'not-the-real-jwt-secret', { expiresIn: '30d' });
+  const wrongSecretRes = await signedRequest(wrongSecretToken).get('/api/users/profile');
+  assertStatus(wrongSecretRes.status, 401, 'a JWT signed with the wrong secret is rejected');
+
+  // ── Banned accounts are locked out everywhere, not just at login ─────────
+  const banned = await createTestUser();
+  await prisma.user.update({ where: { id: banned.user.id }, data: { banned: true } });
+  const bannedProfile = await banned.client.get('/api/users/profile');
+  assertStatus(bannedProfile.status, 403, 'a banned user is refused on an authenticated read');
+  const bannedClaim = await banned.client.post('/api/users/daily-bonus');
+  assertStatus(bannedClaim.status, 403, 'a banned user cannot claim a reward');
+
+  // ── A deleted user's token must stop working immediately ────────────────
+  const ghost = await createTestUser();
+  const ghostClient = ghost.client;
+  await prisma.fraudIncident.deleteMany({ where: { userId: ghost.user.id } });
+  await prisma.deviceFingerprint.deleteMany({ where: { userId: ghost.user.id } });
+  await prisma.coinLedger.deleteMany({ where: { userId: ghost.user.id } });
+  await prisma.user.delete({ where: { id: ghost.user.id } });
+  const ghostRes = await ghostClient.get('/api/users/profile');
+  assertStatus(ghostRes.status, 401, "a still-valid token for a deleted account no longer authenticates");
+}
+
+async function testInputValidationAndAbuse() {
+  section('Input validation & abuse resistance');
+  const { user, client } = await createTestUser();
+
+  // ── Malformed path params must 400, not reach the ORM raw ────────────────
+  const admin = await createTestUser({ role: 'SUPER_ADMIN' });
+  const badId = await admin.client.get('/api/admin/user-intelligence/not-a-number');
+  assertStatus(badId.status, 400, 'a non-numeric user id is rejected before it reaches the database');
+  assert(!/prisma|invocation|Argument/i.test(JSON.stringify(badId.data)),
+    'the rejection leaks no ORM/technical detail to the caller');
+
+  // ── SQL/NoSQL injection attempts are treated as ordinary data ────────────
+  const injection = await admin.client.get(`/api/admin/error-logs?search=${encodeURIComponent("'; DROP TABLE \"User\"; --")}`);
+  assertStatus(injection.status, 200, 'a SQL-injection-shaped search term is handled as a literal string');
+  const usersStillThere = await prisma.user.count();
+  assert(usersStillThere > 0, 'the User table survived the injection attempt');
+
+  // ── Withdrawal input validation ──────────────────────────────────────────
+  const noItem = await client.post('/api/wallet/withdraw', { destinationId: 'upi@bank' });
+  assertStatus(noItem.status, 400, 'a withdrawal with no catalog item is rejected');
+  const negativeItem = await client.post('/api/wallet/withdraw', { catalogItemId: -1, destinationId: 'upi@bank' });
+  assert(negativeItem.status >= 400 && negativeItem.status < 500, 'a negative catalog item id is a client error, not a 500');
+  const hugeItem = await client.post('/api/wallet/withdraw', { catalogItemId: Number.MAX_SAFE_INTEGER, destinationId: 'x' });
+  assert(hugeItem.status >= 400 && hugeItem.status < 500, 'an absurd catalog item id is a client error, not a 500');
+
+  // ── Telemetry must not accept a negative count to rewind progress ────────
+  const beforeStats = await prisma.user.findUnique({ where: { id: user.id } });
+  await client.post('/api/telemetry/track', { eventType: 'SHORTS_WATCHED', count: -1000 });
+  const afterStats = await prisma.user.findUnique({ where: { id: user.id } });
+  assert((afterStats?.lifetimeShortsWatched ?? 0) >= (beforeStats?.lifetimeShortsWatched ?? 0),
+    'a negative telemetry count cannot drive a lifetime counter backwards');
+
+  // ── Pagination bounds ────────────────────────────────────────────────────
+  const hugeLimit = await admin.client.get('/api/admin/error-logs?limit=100000');
+  assertStatus(hugeLimit.status, 200, 'an enormous page size is accepted');
+  assert((hugeLimit.data?.data ?? []).length <= 200, 'the page size is capped server-side regardless of what was asked for');
+  const negativeOffset = await admin.client.get('/api/admin/error-logs?limit=-5&offset=-10');
+  assertStatus(negativeOffset.status, 200, 'negative pagination values do not error');
+  assert(Array.isArray(negativeOffset.data?.data), 'negative pagination still returns a well-formed page');
+
+  // ── Config writes are validated ──────────────────────────────────────────
+  const longValue = await admin.client.put('/api/admin/config/e2e_long_value', { value: 'x'.repeat(9000) });
+  assert(longValue.status < 500, 'an oversized config value is handled, not crashed on');
+}
+
+async function testConcurrentClaimSafety() {
+  section('Concurrency — a reward can never be claimed twice');
+
+  // The wallet suite already covers the withdrawal double-spend race. These
+  // cover the other endpoints that mint value, where a duplicate claim is
+  // direct financial loss.
+  const bonusUser = await createTestUser();
+  const bonusResults = await Promise.all([
+    bonusUser.client.post('/api/users/daily-bonus'),
+    bonusUser.client.post('/api/users/daily-bonus'),
+    bonusUser.client.post('/api/users/daily-bonus'),
+  ]);
+  // The endpoint answers 200 {claimed:false} for an already-claimed day rather
+  // than erroring, so the meaningful count is how many actually claimed.
+  const bonusSuccesses = bonusResults.filter((r) => r.status === 200 && r.data?.claimed === true).length;
+  assertEqual(bonusSuccesses, 1, 'three simultaneous daily-bonus claims credit exactly one');
+  assert(bonusResults.every((r) => r.status < 500), 'a losing racer gets a clean answer, not a 500');
+  await settle();
+  const bonusEntries = await prisma.coinLedger.count({
+    where: { userId: bonusUser.user.id, source: { contains: 'DAILY' } },
+  });
+  assert(bonusEntries <= 1, 'at most one daily-bonus ledger entry exists after the race');
+
+  const spinUser = await createTestUser({ level: 1 });
+  const spins = await Promise.all([
+    spinUser.client.post('/api/rewards/roulette/spin'),
+    spinUser.client.post('/api/rewards/roulette/spin'),
+    spinUser.client.post('/api/rewards/roulette/spin'),
+  ]);
+  const spinSuccesses = spins.filter((r) => r.status === 200).length;
+  assert(spinSuccesses <= 1, 'simultaneous roulette spins cannot exceed the daily allowance');
+
+  const freezeUser = await createTestUser();
+  await prisma.coinLedger.create({
+    data: {
+      userId: freezeUser.user.id, amount: 100000, source: 'E2E_SEED',
+      idempotencyKey: `e2e-freeze-race-${RUN_ID}-${freezeUser.user.id}`,
+      sessionId: 'E2E', ipHash: 'E2E',
+    },
+  });
+  await setConfig('streak_freeze_max', '1');
+  const freezes = await Promise.all([
+    freezeUser.client.post('/api/users/streak-freeze/purchase'),
+    freezeUser.client.post('/api/users/streak-freeze/purchase'),
+  ]);
+  const freezeSuccesses = freezes.filter((r) => r.status === 200).length;
+  assert(freezeSuccesses <= 1, 'simultaneous streak-freeze purchases cannot exceed the configured cap');
+  const freezeState = await prisma.user.findUnique({ where: { id: freezeUser.user.id } });
+  assert((freezeState?.streakFreezes ?? 0) <= 1, 'the freeze stock never exceeds the cap after a race');
+}
+
+async function testErrorMasking() {
+  section('Error masking — users never see technical detail');
+  const { client } = await createTestUser();
+  const admin = await createTestUser({ role: 'SUPER_ADMIN' });
+
+  // Probe a spread of failure shapes and assert none of them leak internals.
+  const probes: Array<[string, Promise<any>]> = [
+    ['unauthenticated read', signedRequest('').get('/api/users/profile')],
+    ['bad path param', admin.client.get('/api/admin/user-intelligence/not-a-number')],
+    ['missing required body', client.post('/api/wallet/withdraw', { destinationId: 'x' })],
+    ['nonexistent resource', client.put('/api/users/notifications/999999999/read')],
+    ['forbidden route', client.get('/api/admin/error-logs')],
+  ];
+
+  for (const [label, promise] of probes) {
+    const res = await promise;
+    const body = JSON.stringify(res.data ?? {});
+    const leaks = /at\s+\/|\.ts:\d+|node_modules|PrismaClient|prisma\.|SequelizeError|ECONNREFUSED|password|secret/i.test(body);
+    assert(!leaks, `${label} (HTTP ${res.status}) exposes no stack trace, file path, or internal identifier`);
+  }
+
+  // A genuine 500 must still be masked. Force one by pointing a query at a
+  // column value the DB will reject, rather than faking it.
+  const forced = await admin.client.get('/api/admin/error-logs?statusCode=abc&userId=xyz');
+  assert(forced.status < 500 || !/prisma|\.ts:\d+/i.test(JSON.stringify(forced.data)),
+    'malformed query params either validate cleanly or fail without leaking internals');
+}
+
 // ─────────────────────────────────────────────────────────
 // Runner
 // ─────────────────────────────────────────────────────────
@@ -761,6 +956,10 @@ async function main() {
     ['badges/leaderboard/marquee', testBadgesLeaderboardMarquee],
     ['admin', testAdminEndpoints],
     ['client-crash-reporting', testClientCrashReporting],
+    ['authorization', testAuthorizationAndIsolation],
+    ['input-validation', testInputValidationAndAbuse],
+    ['concurrency', testConcurrentClaimSafety],
+    ['error-masking', testErrorMasking],
   ];
 
   for (const [name, fn] of sections) {

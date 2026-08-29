@@ -2,11 +2,12 @@ import { Request, Response } from 'express';
 import { fetchNewsFromDb } from '../services/rssService';
 import prisma from '../config/db';
 import { sendServerError } from '../utils/errorResponse';
+import { parseLimit } from '../utils/pagination';
 
 export const getNews = async (req: Request, res: Response) => {
   try {
     const cursor = req.query.cursor ? parseInt(req.query.cursor as string) : undefined;
-    const limit = parseInt(req.query.limit as string) || 20;
+    const limit = parseLimit(req.query.limit, 20, 100);
     const category = req.query.category as string | undefined;
     const source = req.query.source as string | undefined;
     const result = await fetchNewsFromDb(cursor, limit, category, source);

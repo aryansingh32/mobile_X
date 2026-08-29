@@ -6,11 +6,12 @@ import { eventQueue, redisConnection } from '../services/queueService';
 import requestIp from 'request-ip';
 import { sendServerError } from '../utils/errorResponse';
 import logger from '../utils/logger';
+import { parseLimit } from '../utils/pagination';
 
 export const getShorts = async (req: Request, res: Response) => {
   try {
     const cursor = req.query.cursor ? parseInt(req.query.cursor as string) : 0;
-    const limit = parseInt(req.query.limit as string) || 10;
+    const limit = parseLimit(req.query.limit, 10, 50);
     // Parse excluded video IDs sent from client (seen content this session)
     const excludeIds = req.query.excludeIds
       ? (req.query.excludeIds as string).split(',').filter(Boolean)

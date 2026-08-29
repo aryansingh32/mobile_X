@@ -7,6 +7,7 @@ import { AuthRequest } from '../middlewares/authMiddleware';
 import requestIp from 'request-ip';
 import { sendServerError, sendControllerError } from '../utils/errorResponse';
 import { checkAndAwardBadges } from '../services/badgeService';
+import { parseLimit } from '../utils/pagination';
 
 export const getCatalog = async (req: AuthRequest, res: Response) => {
   try {
@@ -208,7 +209,7 @@ export const getHistory = async (req: AuthRequest, res: Response) => {
   try {
     const userId = req.user.id;
     const cursor = req.query.cursor ? parseInt(req.query.cursor as string) : undefined;
-    const limit = parseInt(req.query.limit as string) || 20;
+    const limit = parseLimit(req.query.limit, 20, 100);
 
     const entries = await prisma.coinLedger.findMany({
       where: { userId },
@@ -264,7 +265,7 @@ export const getMyWithdrawals = async (req: AuthRequest, res: Response) => {
   try {
     const userId = req.user.id;
     const cursor = req.query.cursor ? parseInt(req.query.cursor as string) : undefined;
-    const limit = parseInt(req.query.limit as string) || 20;
+    const limit = parseLimit(req.query.limit, 20, 100);
 
     const withdrawals = await prisma.withdrawal.findMany({
       where: { userId },
