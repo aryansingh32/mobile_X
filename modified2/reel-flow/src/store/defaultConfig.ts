@@ -185,7 +185,7 @@ export const BUNDLED_DEFAULT_CONFIG: RemoteConfigPayload = {
     'home.hero.title': 'Discover the Unexpected.',
     'home.hero.subtitle': 'Curated micro-experiences for your daily commute.',
     'rewards.title': 'Your Earnings',
-    'rewards.subtitle': 'Watch ads. Complete missions. Cash out real money.',
+    'rewards.subtitle': 'Watch ads. Complete missions. Redeem real rewards.',
     'wallet.balance_label': 'Current Balance',
     'wallet.withdraw_btn': 'Withdraw Funds',
     'discover.sponsored_tag': 'Sponsored Content',

@@ -5,7 +5,7 @@ import { fetchMarqueeItems, MarqueeItem } from '../../api/marquee';
 
 const CHIP_MESSAGES_ROW1 = [
   "withdrawn 1000 VIB", "redeemed a hoodie", "unlocked a mystery box",
-  "referred 5 friends", "100% trusted", "won a jackpot",
+  "referred 5 friends", "100% trusted", "won a bonus reward",
   "redeemed premium pass", "got instant payout", "loved the rewards"
 ];
 

@@ -25,6 +25,7 @@ import rewardsRoutes from './routes/rewards';
 import configRoutes from './routes/config';
 import telemetryRoutes from './routes/telemetry';
 import marqueeRoutes from './routes/marquee';
+import legalRoutes from './routes/legal';
 import { startNewsIngestion } from './services/newsIngestionService';
 import { startScheduledJobs } from './services/schedulerService';
 
@@ -80,12 +81,13 @@ app.use(fraudDetectionMiddleware);
 
 const requireSignature = (req: express.Request, res: express.Response, next: express.NextFunction) => {
   const path = req.path;
-  if (path.startsWith('/api/webhooks') || path === '/api/rewards/ssv' || path === '/api/health') {
+  if (path.startsWith('/api/webhooks') || path === '/api/rewards/ssv' || path === '/api/health' || path.startsWith('/legal')) {
     return next();
   }
   return verifyApiSignature(req, res, next);
 };
 app.use(requireSignature);
+app.use('/legal', legalRoutes);
 
 app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
