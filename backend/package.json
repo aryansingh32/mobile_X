@@ -13,7 +13,8 @@
     "seed:ad-config": "ts-node --transpile-only src/scripts/seedAdConfig.ts",
     "seed:badges": "ts-node --transpile-only src/scripts/seedBadges.ts",
     "test": "jest",
-    "test:e2e": "ts-node --transpile-only src/scripts/e2eSmokeTest.ts"
+    "test:e2e": "ts-node --transpile-only src/scripts/e2eSmokeTest.ts",
+    "test:load": "ts-node --transpile-only src/scripts/loadTest.ts"
   },
   "engines": {
     "node": ">=20.0.0"
