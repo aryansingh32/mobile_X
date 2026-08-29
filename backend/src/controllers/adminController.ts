@@ -386,14 +386,20 @@ export const getLiveUsers = async (req: Request, res: Response) => {
 export const getUserIntelligence = async (req: Request, res: Response): Promise<void> => {
   try {
     const { userId } = req.params;
+    const parsedUserId = parseInt(userId as string, 10);
+    if (!Number.isInteger(parsedUserId)) { res.status(400).json({ error: 'Invalid user id' }); return; }
     const user = await prisma.user.findUnique({
-      where: { id: parseInt(userId as string) },
+      where: { id: parsedUserId },
       include: {
         devices: true,
         fraudLogs: true,
         ledgerEntries: { orderBy: { timestamp: 'desc' }, take: 50 },
         referrals: { include: { referred: { select: { id: true, name: true } } } },
-        referredBy: { include: { referrer: { select: { id: true, name: true } } } }
+        referredBy: { include: { referrer: { select: { id: true, name: true } } } },
+        // What this user has actually hit server-side — they only ever saw
+        // a generic "something went wrong" message; this is where the real
+        // message/stack live for support/debugging.
+        errorLogs: { orderBy: { createdAt: 'desc' }, take: 50 },
       }
     });
     if (!user) { res.status(404).json({ error: 'User not found' }); return; }
@@ -735,5 +741,43 @@ export const getLeaderboardAdmin = async (req: Request, res: Response) => {
       .map((g, i) => ({ rank: i + 1, ...userMap.get(g.userId)!, coins: g._sum.amount || 0 }));
 
     res.json({ data: { period, leaders } });
+  } catch (error: any) { sendServerError(res, error); }
+};
+
+// Every server-side error real users have hit (see utils/errorResponse.ts's
+// sendServerError) — the client only ever showed them a generic message;
+// this is where the actual message/stack ended up. Filterable by user so
+// support can pull "what has this specific person been hitting" instead of
+// grepping raw log files.
+export const getErrorLogs = async (req: Request, res: Response) => {
+  try {
+    const limit = Math.min(parseInt(req.query.limit as string) || 50, 200);
+    const offset = parseInt(req.query.offset as string) || 0;
+    const userId = req.query.userId ? parseInt(req.query.userId as string) : undefined;
+    const statusCode = req.query.statusCode ? parseInt(req.query.statusCode as string) : undefined;
+    const search = typeof req.query.search === 'string' ? req.query.search.trim() : '';
+
+    const where: any = {};
+    if (Number.isFinite(userId)) where.userId = userId;
+    if (Number.isFinite(statusCode)) where.statusCode = statusCode;
+    if (search) {
+      where.OR = [
+        { message: { contains: search, mode: 'insensitive' } },
+        { path: { contains: search, mode: 'insensitive' } },
+      ];
+    }
+
+    const [logs, total] = await Promise.all([
+      prisma.errorLog.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        take: limit,
+        skip: offset,
+        include: { user: { select: { id: true, name: true, email: true } } },
+      }),
+      prisma.errorLog.count({ where }),
+    ]);
+
+    res.json({ data: logs, total, limit, offset });
   } catch (error: any) { sendServerError(res, error); }
 };

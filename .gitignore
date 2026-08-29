@@ -17,3 +17,5 @@ backend/firebase-service-account.json
 firebase-service-account*.json
 
 *.zip
+
+*.rdb

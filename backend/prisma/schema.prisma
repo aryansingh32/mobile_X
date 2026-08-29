@@ -51,6 +51,7 @@ model User {
   totalCoinsEarned  Int       @default(0)
   activityEvents    UserActivityEvent[]
   rouletteSpinHistory RouletteSpinHistory[]
+  errorLogs         ErrorLog[]
 
   // Lifetime Telemetry Metrics
   lifetimeScreentimeMin   Int @default(0)
@@ -412,6 +413,28 @@ model AuditLog {
   action    String
   details   String
   createdAt DateTime @default(now())
+}
+
+// Every server-side error a user actually hits (see utils/errorResponse.ts's
+// sendServerError) — the client only ever sees a generic, safe message;
+// the real message + stack land here, associated with the user it happened
+// to (nullable since some failures happen before a request is authenticated,
+// e.g. a malformed SSV callback). This is what the admin panel's Error Logs
+// page and the per-user drill-down on User Intelligence read from.
+model ErrorLog {
+  id         Int      @id @default(autoincrement())
+  userId     Int?
+  user       User?    @relation(fields: [userId], references: [id])
+  method     String
+  path       String
+  statusCode Int
+  message    String   @db.Text
+  stack      String?  @db.Text
+  createdAt  DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([createdAt])
+  @@index([statusCode])
 }
 
 // A/B Testing System

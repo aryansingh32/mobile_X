@@ -155,7 +155,12 @@ export const AuthScreen = () => {
       if (error.code === statusCodes.PLAY_SERVICES_NOT_AVAILABLE) {
         Alert.alert('Error', 'Google Play Services not available or outdated');
       } else {
-        Alert.alert('Login Failed', error.message || 'Something went wrong. Please try again.');
+        // error.message here is a raw Google Sign-In SDK / network exception,
+        // not something the backend curated for a user to read — logging it
+        // (dev console only) instead of displaying it keeps the user-facing
+        // message friendly regardless of what actually failed underneath.
+        if (__DEV__) console.error('Google Sign-In failed:', error);
+        Alert.alert('Login Failed', 'Something went wrong signing you in. Please try again.');
       }
     } finally {
       setLoading(false);

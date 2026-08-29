@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { getAllUsers, adjustUserBalance, updateUserMetrics, bulkUpdateUsers, getWithdrawals, processWithdrawal, getFraudLogs, resolveFraud, getSystemLogs, getMe, getLeaderboardAdmin } from '../controllers/adminController';
+import { getAllUsers, adjustUserBalance, updateUserMetrics, bulkUpdateUsers, getWithdrawals, processWithdrawal, getFraudLogs, resolveFraud, getSystemLogs, getMe, getLeaderboardAdmin, getErrorLogs } from '../controllers/adminController';
 import { authenticate, authorizeAdmin, authorizeFinanceAdmin, authorizeFraudAnalyst, authorizeSuperAdmin } from '../middlewares/authMiddleware';
 import {
   getAllConfig, updateConfig,
@@ -28,6 +28,7 @@ router.get('/fraud', authorizeFraudAnalyst, getFraudLogs);
 router.post('/fraud/:logId/resolve', authorizeFraudAnalyst, resolveFraud);
 
 router.get('/logs', authorizeSuperAdmin, getSystemLogs);
+router.get('/error-logs', authorizeSuperAdmin, getErrorLogs);
 
 // --- Google-Grade Advanced Endpoints ---
 import { 

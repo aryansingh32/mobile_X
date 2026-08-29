@@ -5,7 +5,7 @@ import {
   ShieldCheck, Users, AlertTriangle, CreditCard, LayoutDashboard,
   Activity, Database, Settings, ShoppingBag,
   Radio, FileCode, Shield, LineChart, Target, Bell, FlaskConical, Network, CheckSquare,
-  LogOut, FileText, Layers, Terminal, MessageSquare, Filter, Play, Award, Trophy, Megaphone, TrendingUp
+  LogOut, FileText, Layers, Terminal, MessageSquare, Filter, Play, Award, Trophy, Megaphone, TrendingUp, Bug
 } from 'lucide-react';
 
 import AdminLogin from './pages/AdminLogin';
@@ -50,6 +50,7 @@ import LeaderboardPage from './pages/Leaderboard';
 import MarqueePage from './pages/Marquee';
 import ProgressionPage from './pages/Progression';
 import ContentStringsPage from './pages/ContentStrings';
+import ErrorLogsPage from './pages/ErrorLogs';
 
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID;
 
@@ -106,6 +107,7 @@ const Sidebar = ({ onLogout }: { onLogout: () => void }) => {
 
         <div className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2 mt-6 px-4">Security & System</div>
         <NavLink to="/fraud" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}><AlertTriangle size={20} /> Fraud Center</NavLink>
+        <NavLink to="/error-logs" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}><Bug size={20} /> Error Log</NavLink>
         <NavLink to="/security" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}><Shield size={20} /> Security Ops (Audit)</NavLink>
         <NavLink to="/env" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}><FileCode size={20} /> Env Manager</NavLink>
         <NavLink to="/monitoring" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}><Activity size={20} /> Server Monitoring</NavLink>
@@ -234,6 +236,7 @@ const App = () => {
               <Route path="/progression" element={<ProgressionPage />} />
               <Route path="/content-strings" element={<ContentStringsPage />} />
               <Route path="/fraud" element={<FraudLogs />} />
+              <Route path="/error-logs" element={<ErrorLogsPage />} />
               <Route path="/security" element={<SecurityLogs />} />
               <Route path="/content" element={<ContentPage />} />
               <Route path="/news-dashboard" element={<ContentDashboard />} />

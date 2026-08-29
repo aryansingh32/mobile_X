@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Users, Search, Shield, MapPin, Smartphone, Clock, CreditCard, Network, Download, ChevronLeft, ChevronRight, Flag } from 'lucide-react';
+import { Users, Search, Shield, MapPin, Smartphone, Clock, CreditCard, Network, Download, ChevronLeft, ChevronRight, Flag, Bug } from 'lucide-react';
 import { adjustUserBalance, api, updateUserMetrics, bulkUpdateUsers } from '../services/api';
 
 type TriState = 'all' | 'true' | 'false';
@@ -506,6 +506,28 @@ const UsersPage = () => {
                       ├─ {r.referred.name} (Tier {r.tier})
                     </div>
                   )) : <div className="pl-4 text-gray-500 mt-2">No referrals yet</div>}
+                </div>
+              </div>
+
+              {/* Error Logs — what this user actually hit server-side. They
+                  only ever saw a generic "something went wrong" message;
+                  this is where the real message/stack ended up (see
+                  utils/errorResponse.ts's sendServerError). */}
+              <div>
+                <h3 className="text-lg font-bold text-white mb-3 flex items-center"><Bug size={18} className="mr-2 text-red-400"/> Error Log</h3>
+                <div className="bg-[#222] rounded-lg p-4 text-sm text-gray-300 max-h-96 overflow-y-auto">
+                  {selectedUser.errorLogs?.length > 0 ? selectedUser.errorLogs.map((e: any) => (
+                    <div key={e.id} className="py-2 border-b border-[#333] last:border-0">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${e.statusCode >= 500 ? 'bg-red-900/50 text-red-400' : 'bg-yellow-900/40 text-yellow-400'}`}>
+                          {e.statusCode}
+                        </span>
+                        <span className="text-xs text-gray-500 font-mono">{e.method} {e.path}</span>
+                        <span className="text-xs text-gray-600 ml-auto">{new Date(e.createdAt).toLocaleString()}</span>
+                      </div>
+                      <div className="text-white text-xs">{e.message}</div>
+                    </div>
+                  )) : <span className="text-gray-500">No server-side errors recorded for this user.</span>}
                 </div>
               </div>
 

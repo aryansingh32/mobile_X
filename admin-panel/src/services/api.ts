@@ -58,6 +58,8 @@ export const getFraudLogs = () => api.get('/admin/fraud');
 export const resolveFraud = (logId: number) => api.post(`/admin/fraud/${logId}/resolve`);
 export const getSystemLogs = () => api.get('/admin/logs');
 export const getAuditLogs = () => api.get('/admin/audit');
+export const getErrorLogs = (params?: { search?: string; userId?: string; statusCode?: string; limit?: number; offset?: number }) =>
+  api.get('/admin/error-logs', { params });
 
 // Config & Env
 export const getConfig = () => api.get('/admin/config');
