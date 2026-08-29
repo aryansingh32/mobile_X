@@ -17,13 +17,13 @@ import { useTelemetry } from './src/hooks/useTelemetry';
 
 // Screens
 import BottomNavBar, { TabId } from './src/components/BottomNavBar';
-import { HomeScreen } from './src/screens/HomeScreen';
+import { HomeScreen, HomeScreenHandle } from './src/screens/HomeScreen';
 import { DiscoverScreen } from './src/components/discover/DiscoverScreen';
 import { ShortsFeed } from './src/components/shorts/ShortsFeed';
 import { RewardsScreen } from './src/screens/RewardsScreen';
 import { WalletScreen } from './src/screens/WalletScreen';
 import { AuthScreen } from './src/screens/AuthScreen';
-import { GamesScreen } from './src/screens/GamesScreen';
+import { GamesScreen, GamesScreenHandle } from './src/screens/GamesScreen';
 import { TabTooltip } from './src/components/onboarding/TabTooltip';
 import { trackActivity, registerFingerprint } from './src/api/user';
 import { ToastProvider } from './src/components/ui/Toast';
@@ -33,10 +33,13 @@ import { NotificationsScreen } from './src/screens/NotificationsScreen';
 import { HelpSupportScreen } from './src/screens/HelpSupportScreen';
 import { LeaderboardScreen } from './src/screens/LeaderboardScreen';
 import { AchievementScreen } from './src/screens/AchievementScreen';
+import { ErrorBoundary } from './src/components/ErrorBoundary';
 import { ReferEarnScreen } from './src/screens/ReferEarnScreen';
 import { DailyMissionsScreen } from './src/screens/DailyMissionsScreen';
 import { MaintenanceScreen } from './src/screens/MaintenanceScreen';
 import { OnboardingFlow } from './src/screens/OnboardingFlow';
+import { NoInternetScreen } from './src/screens/NoInternetScreen';
+import { fetchPublicStatus } from './src/api/config';
 
 type OverlayScreen = ProfileDestination | 'profile';
 
@@ -50,7 +53,9 @@ function MainApp() {
   const popOverlay = () => setOverlayStack((s) => s.slice(0, -1));
   const currentOverlay = overlayStack.length ? overlayStack[overlayStack.length - 1] : null;
   const { isAdPlaying, setAdPlaying, canWatchAd } = useAppStore();
-  
+  const homeScreenRef = useRef<HomeScreenHandle>(null);
+  const gamesScreenRef = useRef<GamesScreenHandle>(null);
+
   useTelemetry(); // Initialize background telemetry and screentime heartbeat
 
   useEffect(() => {
@@ -65,7 +70,18 @@ function MainApp() {
         return true;
       }
       if (showGames) {
+        // If a game is actually open inside GamesScreen, let it run its own
+        // ad-gated exit flow first (same as the in-app back arrow) instead
+        // of always closing the whole Games screen in one jump.
+        if (gamesScreenRef.current?.handleBack()) return true;
         setShowGames(false);
+        return true;
+      }
+      if (activeTab === 'home' && homeScreenRef.current?.handleBack()) {
+        // Home has its own "quick play" game entry point, invisible to the
+        // rest of this handler — without this check, hardware-back while
+        // such a game was open fell through to "exit the app" instead of
+        // closing the game.
         return true;
       }
       if (overlayStack.length > 0) {
@@ -435,7 +451,7 @@ function MainApp() {
 
   const renderScreen = () => {
     if (showGames) {
-      return <GamesScreen onBack={() => setShowGames(false)} />;
+      return <GamesScreen ref={gamesScreenRef} onBack={() => setShowGames(false)} />;
     }
 
     if (currentOverlay) {
@@ -463,6 +479,7 @@ function MainApp() {
       case 'home':
         return (
           <HomeScreen
+            ref={homeScreenRef}
             onNavigate={handleTabChange}
             onOpenGames={() => setShowGames(true)}
             onOpenProfile={() => pushOverlay('profile')}
@@ -504,31 +521,51 @@ function MainApp() {
 }
 
 export default function App() {
-  const { token, hydrated, hasCompletedOnboarding } = useAppStore();
+  const { token, hydrated, hasCompletedOnboarding, isOffline } = useAppStore();
   const maintenanceMode = useFeatureFlag('maintenance_mode', false);
+  // SplashScreen's own onFinish only fires once its entrance animation AND
+  // its hero-image preload both complete — previously this was never
+  // passed in, so the splash was dismissed purely on `hydrated` (an
+  // AsyncStorage/SecureStore read that's often faster than the animation),
+  // silently breaking the "no shimmer on Welcome/Auth" guarantee the
+  // preloader exists for. This can only make the splash last >= as long as
+  // before, never hang: SplashScreen calls onFinish even on an image load
+  // error, and the animation timer always fires.
+  const [splashReady, setSplashReady] = useState(false);
 
   // For logged-in users, this shows briefly during hydration.
   // For logged-out users, WelcomeScreen handles the interactive splash phase.
-  if (!hydrated) {
-    return <SplashScreen />;
+  if (!hydrated || !splashReady) {
+    return (
+      <ErrorBoundary>
+        <SplashScreen onFinish={() => setSplashReady(true)} />
+      </ErrorBoundary>
+    );
   }
 
   return (
-    <SafeAreaProvider>
-      <ToastProvider>
-        <RemoteConfigProvider>
-          {maintenanceMode ? (
-            <MaintenanceScreen />
-          ) : !hasCompletedOnboarding ? (
-            <OnboardingFlow />
-          ) : !token ? (
-            <AuthScreen />
-          ) : (
-            <MainApp />
-          )}
-        </RemoteConfigProvider>
-      </ToastProvider>
-    </SafeAreaProvider>
+    <ErrorBoundary>
+      <SafeAreaProvider>
+        <ToastProvider>
+          <RemoteConfigProvider>
+            {maintenanceMode ? (
+              <MaintenanceScreen />
+            ) : !hasCompletedOnboarding ? (
+              // Scoped to pre-auth only: Onboarding/Auth are 100%
+              // network-dependent already (nothing to do without a
+              // connection), unlike MainApp, which is deliberately built to
+              // keep working on cached/bundled defaults when offline — a
+              // full-screen block there would regress that.
+              isOffline ? <NoInternetScreen onRetry={() => { fetchPublicStatus(); }} /> : <OnboardingFlow />
+            ) : !token ? (
+              isOffline ? <NoInternetScreen onRetry={() => { fetchPublicStatus(); }} /> : <AuthScreen />
+            ) : (
+              <MainApp />
+            )}
+          </RemoteConfigProvider>
+        </ToastProvider>
+      </SafeAreaProvider>
+    </ErrorBoundary>
   );
 }
 

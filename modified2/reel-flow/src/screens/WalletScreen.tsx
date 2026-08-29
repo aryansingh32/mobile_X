@@ -59,6 +59,7 @@ export const WalletScreen = () => {
   const [catalog, setCatalog] = useState<any[]>([]);
   const [suggestions, setSuggestions] = useState<any[]>([]);
   const [suggestionText, setSuggestionText] = useState('');
+  const [suggestionSubmitting, setSuggestionSubmitting] = useState(false);
   const [history, setHistory] = useState<any[]>([]);
   const [rewards, setRewards] = useState<any[]>([]);
   const [error, setError] = useState('');
@@ -351,21 +352,27 @@ export const WalletScreen = () => {
       });
       setActiveTab('rewards');
     } catch (err: any) {
-      showToast(err.response?.data?.error || 'Redemption failed — please try again.', 'error');
+      showToast(err?.response?.data?.error || 'Redemption failed — please try again.', 'error');
     } finally {
       if (mountedRef.current) setSubmitting(false);
     }
   };
 
   const handleSuggest = async () => {
-    if (!suggestionText.trim()) return;
+    if (!suggestionText.trim() || suggestionSubmitting) return;
+    setSuggestionSubmitting(true);
     try {
       await postSuggestion(suggestionText);
       setSuggestionText('');
       invalidateCached('wallet:suggestions');
       loadData();
-    } catch (err) {
-      console.error('Failed to suggest', err);
+    } catch (err: any) {
+      // Previously silent (console.error only) — a failed submit looked
+      // identical to a successful one from the user's side: tap Send, and
+      // nothing visibly happens either way.
+      showToast(err?.response?.data?.error || 'Could not submit your suggestion — please try again.', 'error');
+    } finally {
+      if (mountedRef.current) setSuggestionSubmitting(false);
     }
   };
 
@@ -538,7 +545,11 @@ export const WalletScreen = () => {
                 onChangeText={setSuggestionText}
                 maxLength={200}
               />
-              <TouchableOpacity style={styles.sendBtn} onPress={handleSuggest}>
+              <TouchableOpacity
+                style={[styles.sendBtn, suggestionSubmitting && { opacity: 0.5 }]}
+                onPress={handleSuggest}
+                disabled={suggestionSubmitting}
+              >
                 <Send size={20} color="#000" />
               </TouchableOpacity>
             </View>

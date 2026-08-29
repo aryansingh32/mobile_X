@@ -7,6 +7,7 @@ import { addExp } from '../services/expService';
 import { AuthRequest } from '../middlewares/authMiddleware';
 import requestIp from 'request-ip';
 import { sendServerError } from '../utils/errorResponse';
+import logger from '../utils/logger';
 
 const getConfigInt = async (key: string, fallback: number): Promise<number> => {
   const config = await prisma.appConfig.findUnique({ where: { key } });
@@ -129,6 +130,42 @@ export const handleAdMobSSV = async (req: any, res: Response): Promise<void> => 
       return;
     }
 
+    // Parity with claimAdReward: a device already flagged as rooted/emulated
+    // for this user should not mint real coins just because this particular
+    // ad type happens to go through Google's SSV path instead of the
+    // client-claim endpoint. Log and skip the credit, but still ack 200 to
+    // Google — this is our fraud gate, not a signal Google's callback failed.
+    const deviceIdForCheck = dStr && dStr !== 'null' && dStr !== 'undefined' ? dStr : undefined;
+    if (deviceIdForCheck) {
+      const flaggedDevice = await prisma.deviceFingerprint.findFirst({
+        where: {
+          userId: uid,
+          deviceIdHash: deviceIdForCheck,
+          OR: [{ isRooted: true }, { isEmulator: true }],
+        },
+        select: { id: true, isRooted: true, isEmulator: true },
+      });
+
+      if (flaggedDevice) {
+        await prisma.fraudIncident.create({
+          data: {
+            userId: uid,
+            reason: 'FLAGGED_DEVICE_REWARD_CLAIM',
+            severity: 'HIGH',
+            metadata: JSON.stringify({
+              deviceId: deviceIdForCheck,
+              isRooted: flaggedDevice.isRooted,
+              isEmulator: flaggedDevice.isEmulator,
+              path: 'admob-ssv',
+              adType: type,
+            }),
+          },
+        }).catch(() => undefined);
+        res.status(200).send('OK (Reward blocked: flagged device)');
+        return;
+      }
+    }
+
     // A rule can legitimately be configured (via the admin panel) with 0 coins —
     // e.g. an ad type that only unlocks a non-monetary perk. addLedgerEntry()
     // rejects zero-amount entries by design, so skip the ledger write entirely
@@ -214,7 +251,22 @@ export const claimShortReward = async (req: AuthRequest, res: Response): Promise
     const rewardConfig = await prisma.appConfig.findUnique({
       where: { key: 'short_watch_reward_coins' },
     });
-    const rewardCoins = rewardConfig ? parseInt(rewardConfig.value) : 0;
+    let rewardCoins = rewardConfig ? parseInt(rewardConfig.value) : 0;
+
+    // Hard ceiling: YouTube API Services Developer Policy prohibits
+    // incentivizing/rewarding users for watching YouTube content. The
+    // config default is 0, but it's an admin-editable AppConfig row — this
+    // makes that safe by construction, not just by convention. A nonzero
+    // reward is only ever honored if a second, explicitly-named flag
+    // confirms someone actually signed off on the policy risk; flipping
+    // short_watch_reward_coins alone can never pay out real coins again.
+    if (rewardCoins > 0) {
+      const legalReviewApproved = await getConfigBoolean('short_watch_reward_coins_legal_review_approved', false);
+      if (!legalReviewApproved) {
+        logger.warn('short_watch_reward_coins is nonzero but legal-review flag is not set — forcing reward to 0', { configuredValue: rewardCoins });
+        rewardCoins = 0;
+      }
+    }
 
     const clientIp = requestIp.getClientIp(req) || 'unknown';
 

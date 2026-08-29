@@ -18,14 +18,15 @@ export const QuestBoxHero: React.FC<QuestBoxHeroProps> = ({ size = 200, onOpened
     if (!autoPlay) return;
 
     // Pulse rings endlessly
-    Animated.loop(
+    const pulseLoop = Animated.loop(
       Animated.timing(pulseAnim, {
         toValue: 1,
         duration: 3500,
         easing: Easing.inOut(Easing.ease),
         useNativeDriver: true,
       })
-    ).start();
+    );
+    pulseLoop.start();
 
     // Pop in and slightly lift
     Animated.parallel([
@@ -45,6 +46,7 @@ export const QuestBoxHero: React.FC<QuestBoxHeroProps> = ({ size = 200, onOpened
       onOpened?.();
     });
 
+    return () => pulseLoop.stop();
   }, [autoPlay, pulseAnim, imageScale, lift, onOpened]);
 
   const pulseScale1 = pulseAnim.interpolate({

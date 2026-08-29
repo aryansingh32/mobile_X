@@ -33,14 +33,15 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onGetStarted, onLo
     }).start();
 
     // 2. Pulse background rings endlessly
-    Animated.loop(
+    const pulseLoop = Animated.loop(
       Animated.timing(pulseAnim, {
         toValue: 1,
         duration: 4000,
         easing: Easing.inOut(Easing.ease),
         useNativeDriver: true,
       })
-    ).start();
+    );
+    pulseLoop.start();
 
     // 3. Transition to Welcome Phase (Shift UP & Fade In)
     const transitionTimer = setTimeout(() => {
@@ -70,7 +71,10 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onGetStarted, onLo
       ]).start();
     }, 2000); // Hold splash for 2 seconds
 
-    return () => clearTimeout(transitionTimer);
+    return () => {
+      clearTimeout(transitionTimer);
+      pulseLoop.stop();
+    };
   }, [heroScale, heroTranslateY, fadeAnim, slideAnim, pulseAnim]);
 
   const pulseScale1 = pulseAnim.interpolate({

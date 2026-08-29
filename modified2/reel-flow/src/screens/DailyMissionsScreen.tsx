@@ -33,16 +33,26 @@ export const DailyMissionsScreen = ({ onBack }: { onBack: () => void }) => {
 
   const allComplete = missions.length > 0 && missions.every((m) => m.completed || (m.progress || 0) >= (m.targetCount || m.target || 1));
   const totalReward = missions.reduce((sum, m) => sum + (m.rewardCoins ?? m.reward ?? 0), 0);
+  // Distinct from `allComplete` (mission completion, which stays true for
+  // the rest of the day once earned) — without this, the button kept
+  // saying "Claim Bonus" and stayed tappable after a successful claim,
+  // since allComplete alone can't tell "completed" apart from "completed
+  // AND already claimed". The backend claim endpoint is itself idempotent,
+  // so this is a UX fix, not a financial one.
+  const [bonusClaimed, setBonusClaimed] = useState(false);
 
   const claimBonus = async () => {
+    if (claiming || bonusClaimed) return;
     setClaiming(true);
     try {
       const result = await claimDailyMissions();
       if (result.claimed && result.coinsEarned) {
         updateBalance(result.coinsEarned);
+        setBonusClaimed(true);
         setRainAmount(result.coinsEarned);
         setShowRain(true);
       } else {
+        setBonusClaimed(true);
         showToast(result.message || 'Bonus already claimed today', 'info');
       }
     } catch {
@@ -85,9 +95,9 @@ export const DailyMissionsScreen = ({ onBack }: { onBack: () => void }) => {
         )}
 
         <AppButton
-          label={allComplete ? 'Claim Bonus' : 'Complete all missions to claim'}
+          label={bonusClaimed ? 'Bonus Claimed' : allComplete ? 'Claim Bonus' : 'Complete all missions to claim'}
           onPress={claimBonus}
-          disabled={!allComplete}
+          disabled={!allComplete || bonusClaimed}
           loading={claiming}
           style={{ marginTop: SPACING.lg }}
         />

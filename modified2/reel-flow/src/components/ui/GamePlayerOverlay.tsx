@@ -1,5 +1,5 @@
 import { useShallow } from 'zustand/react/shallow';
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useImperativeHandle, useRef, useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator } from 'react-native';
 import { WebView } from 'react-native-webview';
 import { ArrowLeft } from 'lucide-react-native';
@@ -16,15 +16,52 @@ type Props = {
   onExit: () => void;
 };
 
-export const GamePlayerOverlay = ({ selectedGame, onExit }: Props) => {
+// Exposes the same ad-gated exit flow the in-app back arrow uses, so the
+// Android hardware back button can trigger it too instead of a parent
+// screen closing itself outright and skipping it — see handleBack below.
+export interface GamePlayerOverlayHandle {
+  handleBack: () => boolean;
+}
+
+export const GamePlayerOverlay = React.forwardRef<GamePlayerOverlayHandle, Props>(({ selectedGame, onExit }, ref) => {
   const insets = useSafeAreaInsets();
   const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
   const { isAdPlaying, setAdPlaying } = useAppStore(useShallow(s => ({ isAdPlaying: s.isAdPlaying, setAdPlaying: s.setAdPlaying })));
   const { config: gameCompletionPlacement, canShow, recordShown } = useAdPlacement('game_completion_interstitial');
   const gameCompletionAdUnitId = useAdUnitId(gameCompletionPlacement?.adUnitKey ?? 'GAME_COMPLETION', TestIds.INTERSTITIAL);
   const exitCountRef = useRef(0);
+  // Guards against a rapid double-tap on the back button firing two
+  // concurrent exit/ad flows: isAdPlaying only updates on the *next* render,
+  // so two onPress calls in the same tick both see the stale (false) value.
+  // This ref is checked and set synchronously, independent of React's render
+  // cycle, so the second tap is a genuine no-op.
+  const exitInFlightRef = useRef(false);
+  // Ad event listener unsubscribers for the in-flight exit flow, if any —
+  // torn down on unmount so a screen change while an ad is still loading
+  // doesn't leave a late callback firing against a gone component.
+  const unsubscribersRef = useRef<Array<() => void>>([]);
+
+  useEffect(() => {
+    return () => {
+      unsubscribersRef.current.forEach((unsub) => unsub());
+      unsubscribersRef.current = [];
+    };
+  }, []);
+
+  // This component stays mounted across game selections (callers just toggle
+  // `selectedGame` between an object and null) — reset per-game load state
+  // whenever the game changes, or a previous game's load error would
+  // permanently hide the WebView for every game selected afterward.
+  useEffect(() => {
+    setLoading(true);
+    setLoadError(false);
+  }, [selectedGame?.id]);
 
   const handleGameExit = () => {
+    if (exitInFlightRef.current) return;
+
     exitCountRef.current += 1;
 
     if (!gameCompletionAdUnitId || isAdPlaying || isAdPenalized() || !canShow(1, exitCountRef.current)) {
@@ -32,6 +69,7 @@ export const GamePlayerOverlay = ({ selectedGame, onExit }: Props) => {
       return;
     }
 
+    exitInFlightRef.current = true;
     setAdPlaying(true);
     const sessionId = `game-completion-${Date.now()}`;
 
@@ -48,11 +86,13 @@ export const GamePlayerOverlay = ({ selectedGame, onExit }: Props) => {
     });
 
     const cleanup = () => {
+      exitInFlightRef.current = false;
       setAdPlaying(false);
       onExit();
       unsubscribeLoaded();
       unsubscribeClosed();
       unsubscribeError();
+      unsubscribersRef.current = [];
     };
 
     const unsubscribeLoaded = ad.addAdEventListener(AdEventType.LOADED, () => {
@@ -90,8 +130,25 @@ export const GamePlayerOverlay = ({ selectedGame, onExit }: Props) => {
       cleanup();
     });
 
-    ad.load();
+    unsubscribersRef.current = [unsubscribeLoaded, unsubscribeClosed, unsubscribeError];
+
+    // Guard against ad.load() itself throwing synchronously (unusual, but
+    // seen with misconfigured ad units) — without this the exit flow would
+    // hang with exitInFlightRef stuck true and the user unable to leave.
+    try {
+      ad.load();
+    } catch {
+      cleanup();
+    }
   };
+
+  useImperativeHandle(ref, () => ({
+    handleBack: () => {
+      if (!selectedGame) return false;
+      handleGameExit();
+      return true;
+    },
+  }), [selectedGame]);
 
   if (!selectedGame) return null;
 
@@ -107,29 +164,47 @@ export const GamePlayerOverlay = ({ selectedGame, onExit }: Props) => {
         </View>
       </View>
       <View style={styles.webViewWrap}>
-        <WebView
-          source={{ uri: gameUrl(selectedGame) }}
-          style={styles.webView}
-          allowsInlineMediaPlayback
-          bounces={false}
-          scrollEnabled={false}
-          showsHorizontalScrollIndicator={false}
-          showsVerticalScrollIndicator={false}
-          javaScriptEnabled
-          domStorageEnabled
-          onLoadStart={() => setLoading(true)}
-          onLoadEnd={() => setLoading(false)}
-        />
-        {loading ? (
+        {!loadError && (
+          <WebView
+            key={reloadKey}
+            source={{ uri: gameUrl(selectedGame) }}
+            style={styles.webView}
+            allowsInlineMediaPlayback
+            bounces={false}
+            scrollEnabled={false}
+            showsHorizontalScrollIndicator={false}
+            showsVerticalScrollIndicator={false}
+            javaScriptEnabled
+            domStorageEnabled
+            onLoadStart={() => { setLoading(true); setLoadError(false); }}
+            onLoadEnd={() => setLoading(false)}
+            onError={() => { setLoading(false); setLoadError(true); }}
+            onHttpError={() => { setLoading(false); setLoadError(true); }}
+          />
+        )}
+        {loading && !loadError ? (
           <View style={styles.loader}>
             <ActivityIndicator color={selectedGame.accent} />
             <Text style={styles.loaderText}>Loading game</Text>
           </View>
         ) : null}
+        {loadError ? (
+          <View style={styles.loader}>
+            <Text style={styles.loaderText}>Couldn't load this game.</Text>
+            <TouchableOpacity
+              style={styles.retryButton}
+              onPress={() => { setLoadError(false); setReloadKey((k) => k + 1); }}
+            >
+              <Text style={styles.retryButtonText}>Retry</Text>
+            </TouchableOpacity>
+          </View>
+        ) : null}
       </View>
     </View>
   );
-};
+});
+
+GamePlayerOverlay.displayName = 'GamePlayerOverlay';
 
 const styles = StyleSheet.create({
   playerRoot: {
@@ -184,5 +259,17 @@ const styles = StyleSheet.create({
     marginTop: 12,
     fontSize: 14,
     fontWeight: '600',
+  },
+  retryButton: {
+    marginTop: 16,
+    backgroundColor: '#2A2A2A',
+    paddingVertical: 10,
+    paddingHorizontal: 24,
+    borderRadius: 20,
+  },
+  retryButtonText: {
+    color: '#FFF',
+    fontSize: 14,
+    fontWeight: '700',
   },
 });

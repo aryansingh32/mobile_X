@@ -10,7 +10,8 @@
     "prisma:migrate": "prisma migrate dev",
     "prisma:deploy": "prisma migrate deploy",
     "prisma:push": "prisma db push",
-    "seed:ad-config": "ts-node --transpile-only src/scripts/seedAdConfig.ts"
+    "seed:ad-config": "ts-node --transpile-only src/scripts/seedAdConfig.ts",
+    "test": "jest"
   },
   "engines": {
     "node": ">=20.0.0"
@@ -52,13 +53,16 @@
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
     "@types/hpp": "^0.2.7",
+    "@types/jest": "^30.0.0",
     "@types/jsonwebtoken": "^9.0.10",
     "@types/morgan": "^1.9.10",
     "@types/node": "^25.9.3",
     "@types/request-ip": "^0.0.41",
     "@types/uuid": "^10.0.0",
+    "jest": "^30.4.2",
     "nodemon": "^3.1.14",
     "prisma": "^6.19.3",
+    "ts-jest": "^29.4.12",
     "ts-node": "^10.9.2",
     "typescript": "^6.0.3"
   }

@@ -1,6 +1,7 @@
 import { useShallow } from 'zustand/react/shallow';
 import React, { useEffect, useRef, useState } from 'react';
-import { View, Text, StyleSheet, Image, Pressable, ScrollView, Dimensions, Animated, Easing, Modal, Linking, Share } from 'react-native';
+import { View, Text, StyleSheet, Pressable, ScrollView, Dimensions, Animated, Easing, Modal, Linking, Share } from 'react-native';
+import { Image } from 'expo-image';
 import { DiscoverCardData } from '../../data/discoverMock';
 import { X, Share2, Clock, ExternalLink } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -42,7 +43,8 @@ export const DiscoverDetail: React.FC<Props> = ({ data, layout, onClose }) => {
   const adUnitId = useAdUnitId(bannerPlacement?.adUnitKey ?? 'NEWS_BANNER', TestIds.BANNER);
   const nativeAdUnitId = useAdUnitId('NATIVE', TestIds.NATIVE);
   const [isVisible, setIsVisible] = useState(false);
-  
+  const [heroImageLoaded, setHeroImageLoaded] = useState(false);
+
   const animatedValue = useRef(new Animated.Value(0)).current;
   const closePress = usePressScale();
   const sharePress = usePressScale();
@@ -137,9 +139,23 @@ export const DiscoverDetail: React.FC<Props> = ({ data, layout, onClose }) => {
         </Animated.View>
 
         <ScrollView style={styles.scrollView} bounces={false} showsVerticalScrollIndicator={false}>
-          {/* Top Image */}
+          {/* Top Image — expo-image so this reuses the memory-disk cache the
+              card's own thumbnail already populated, instead of RN's Image
+              re-fetching the same URL from scratch on every article open. */}
           <Animated.View style={[styles.imageContainer, { height: windowHeight * 0.45 }]}>
-            <Image source={{ uri: data.imageUri }} style={styles.image} />
+            <Image
+              source={{ uri: data.imageUri }}
+              style={styles.image}
+              contentFit="cover"
+              cachePolicy="memory-disk"
+              priority="high"
+              transition={150}
+              onLoad={() => setHeroImageLoaded(true)}
+              onError={() => setHeroImageLoaded(true)}
+            />
+            {!heroImageLoaded && (
+              <View style={[StyleSheet.absoluteFill, styles.heroShimmer]} pointerEvents="none" />
+            )}
           </Animated.View>
 
           {/* Content Section - uses theme color as background */}
@@ -244,7 +260,9 @@ const styles = StyleSheet.create({
   image: {
     width: '100%',
     height: '100%',
-    resizeMode: 'cover',
+  },
+  heroShimmer: {
+    backgroundColor: '#2A2A2A',
   },
   headerWrapper: {
     position: 'absolute',

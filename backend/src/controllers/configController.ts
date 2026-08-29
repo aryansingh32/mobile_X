@@ -50,13 +50,20 @@ const AD_UNIT_KEY_LOOKUP: Record<string, string> = {
 
 export const getPublicConfig = async (_req: Request, res: Response): Promise<void> => {
   try {
-    const configs = await prisma.appConfig.findMany({
-      where: { key: { in: SAFE_PUBLIC_KEYS } },
-    });
-    const result: Record<string, string> = {};
+    const [configs, maintenanceFlag] = await Promise.all([
+      prisma.appConfig.findMany({ where: { key: { in: SAFE_PUBLIC_KEYS } } }),
+      // The full /api/config/remote payload (which carries feature flags
+      // generally) requires auth, so a logged-out/pre-onboarding user never
+      // fetches it — meaning maintenance mode was previously invisible to
+      // anyone who isn't already logged in. This endpoint needs no auth, so
+      // it's the one place that can reach them before login.
+      prisma.featureFlag.findUnique({ where: { key: 'maintenance_mode' } }),
+    ]);
+    const result: Record<string, string | boolean> = {};
     for (const c of configs) {
       result[c.key] = c.value;
     }
+    result.maintenanceMode = maintenanceFlag?.enabled ?? false;
     res.json(result);
   } catch (error: any) {
     sendServerError(res, error);

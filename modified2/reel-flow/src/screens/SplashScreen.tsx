@@ -77,21 +77,25 @@ const SplashScreen = ({ onFinish }: { onFinish?: () => void }) => {
     ]).start();
 
     // ── Gentle pulse on the background rings ──────────────────────────
-    Animated.loop(
+    const pulseLoop = Animated.loop(
       Animated.timing(pulseAnim, {
         toValue: 1,
         duration: 3000,
         easing: Easing.inOut(Easing.ease),
         useNativeDriver: true,
       })
-    ).start();
+    );
+    pulseLoop.start();
 
     // ── Pre-loader timeout ────────────────────────────────────
     const timers = [
       setTimeout(() => setAnimFinished(true), 2500),
     ];
 
-    return () => timers.forEach(clearTimeout);
+    return () => {
+      timers.forEach(clearTimeout);
+      pulseLoop.stop();
+    };
   }, [
     heroScale,
     heroOpacity,

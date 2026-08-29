@@ -1,5 +1,5 @@
 import { useShallow } from 'zustand/react/shallow';
-import React, { useEffect, useState, useMemo, useRef } from 'react';
+import React, { useEffect, useState, useMemo, useRef, useImperativeHandle } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl, Alert, Image } from 'react-native';
 import { useAppStore } from '../store/useAppStore';
 import { useConfigStore } from '../store/useConfigStore';
@@ -21,7 +21,7 @@ import AutoMarquee from '../components/ui/AutoMarquee';
 import { useToast } from '../components/ui/Toast';
 import { DailyMissionsCard } from '../components/ui/DailyMissionsCard';
 import { fetchGamesFromOrigin, Game } from '../api/games';
-import { GamePlayerOverlay } from '../components/ui/GamePlayerOverlay';
+import { GamePlayerOverlay, GamePlayerOverlayHandle } from '../components/ui/GamePlayerOverlay';
 import { GameGridCard } from '../components/ui/GameGridCard';
 import { RewardedAd, RewardedAdEventType, AdEventType, TestIds } from 'react-native-google-mobile-ads';
 import { useAdPlacement, isAdPenalized, getAdPenaltyRemainingSeconds } from '../hooks/useAdPlacement';
@@ -46,14 +46,23 @@ type HomeScreenProps = {
   onOpenShortsWithVideo?: (videoId: string) => void;
 };
 
-export const HomeScreen = ({
+// Lets the app's shared Android hardware-back handler close a game opened
+// via Home's own "quick play" entry point — this screen keeps its own
+// selectedGame state, invisible to App.tsx's back handler otherwise, which
+// previously meant hardware-back while such a game was open fell through
+// to "exit the app" instead of closing the game.
+export interface HomeScreenHandle {
+  handleBack: () => boolean;
+}
+
+export const HomeScreen = React.forwardRef<HomeScreenHandle, HomeScreenProps>(({
   onNavigate,
   onOpenGames,
   onOpenProfile,
   onOpenNotifications,
   onOpenDailyMissions,
   onOpenShortsWithVideo,
-}: HomeScreenProps) => {
+}, ref) => {
   const {
     user,
     isAdPlaying,
@@ -86,6 +95,11 @@ export const HomeScreen = ({
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [selectedGame, setSelectedGame] = useState<Game | null>(null);
+  const gamePlayerRef = useRef<GamePlayerOverlayHandle>(null);
+
+  useImperativeHandle(ref, () => ({
+    handleBack: () => gamePlayerRef.current?.handleBack() ?? false,
+  }), []);
   const [missions, setMissions] = useState<any[]>([]);
   const [error, setError] = useState('');
   const [coinRain, setCoinRain] = useState({ visible: false, amount: 0 });
@@ -118,6 +132,11 @@ export const HomeScreen = ({
 
   const preloadedHomeAdRef = useRef<any>(null);
   const preloadedHomeAdReadyRef = useRef(false);
+  // streakClaimedToday comes from the Zustand store and only updates the
+  // component's closure on the *next* render, so a rapid double-tap on
+  // "Claim" before that render lands would otherwise pass the
+  // !streakClaimedToday check twice and fire syncStreak() twice.
+  const streakClaimInFlightRef = useRef(false);
 
   const preloadHomeRewardedAd = () => {
     if (!homeRewardAdUnitId || !deviceId) return;
@@ -425,10 +444,16 @@ export const HomeScreen = ({
   }, []);
 
   useEffect(() => {
-    if (deviceId) {
+    // preloadHomeRewardedAd() itself early-returns until homeRewardAdUnitId
+    // is also ready — without it in the deps, an ad-placement config that
+    // resolves after deviceId (common — it comes from a separate remote
+    // config fetch) means this effect never re-fires and the sponsored-card
+    // ad is never preloaded for the rest of the session.
+    if (deviceId && homeRewardAdUnitId) {
       preloadHomeRewardedAd();
     }
-  }, [deviceId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [deviceId, homeRewardAdUnitId]);
 
   const loadRouletteConfig = async () => {
     try {
@@ -450,12 +475,20 @@ export const HomeScreen = ({
     loadData();
   };
 
+  // Daily missions have no separate "claim" endpoint — the backend credits
+  // the reward automatically the moment telemetry proves the mission
+  // complete (see backend/src/routes/telemetry.ts), and that credit is
+  // already reflected in the `coins` balance this screen's last loadData()
+  // fetched. So this tap must NOT call updateBalance() again — doing so
+  // double-counts the reward in the client's optimistic balance, which then
+  // silently "reverts" the moment the next refresh pulls the true
+  // (already-correct, not-doubled) server balance. This is purely an
+  // acknowledge-and-hide-the-button UI action.
   const handleClaimReward = (missionId: string | number) => {
     setMissions((prev) =>
       prev.map((m) => {
         if (m.id === missionId) {
           const reward = m.rewardCoins ?? m.reward ?? 0;
-          updateBalance(reward);
           showToast(<View style={{flexDirection: 'row', alignItems: 'center'}}><Text style={{color: '#fff', fontSize: 14}}>Claimed {reward} </Text><VIBIcon size={14} /><Text style={{color: '#fff', fontSize: 14}}>!</Text></View>, 'success');
           return { ...m, claimed: true };
         }
@@ -522,7 +555,7 @@ export const HomeScreen = ({
       />
       <FallingEmbers />
 
-      <GamePlayerOverlay selectedGame={selectedGame} onExit={() => setSelectedGame(null)} />
+      <GamePlayerOverlay ref={gamePlayerRef} selectedGame={selectedGame} onExit={() => setSelectedGame(null)} />
 
       {/* Header */}
       <View style={styles.header}>
@@ -601,17 +634,19 @@ export const HomeScreen = ({
             <TouchableOpacity
               style={styles.claimStreakBtn}
               onPress={async () => {
-                if (!streakClaimedToday) {
-                  try {
-                    const result = await syncStreak();
-                    if (result?.coinsEarned) updateBalance(result.coinsEarned);
-                    if (result?.streak !== undefined) setStreak(result.streak);
-                  } catch {
-                    // Silently continue — streak claimed UI state is enough
-                  }
-                  setStreakClaimedToday(true);
-                  showToast('Streak bonus claimed!', 'success');
+                if (streakClaimedToday || streakClaimInFlightRef.current) return;
+                streakClaimInFlightRef.current = true;
+                try {
+                  const result = await syncStreak();
+                  if (result?.coinsEarned) updateBalance(result.coinsEarned);
+                  if (result?.streak !== undefined) setStreak(result.streak);
+                } catch {
+                  // Silently continue — streak claimed UI state is enough
+                } finally {
+                  streakClaimInFlightRef.current = false;
                 }
+                setStreakClaimedToday(true);
+                showToast('Streak bonus claimed!', 'success');
               }}
               accessibilityRole="button"
               accessibilityLabel="Claim streak bonus"
@@ -820,7 +855,9 @@ export const HomeScreen = ({
       )}
     </View>
   );
-};
+});
+
+HomeScreen.displayName = 'HomeScreen';
 
 const styles = StyleSheet.create({
   container: {

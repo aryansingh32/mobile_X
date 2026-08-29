@@ -1,11 +1,17 @@
 import apiClient from './client';
 
-export const fetchNews = async (cursor?: number, limit: number = 20, category?: string, source?: string) => {
+export const fetchNews = async (
+  cursor?: number,
+  limit: number = 20,
+  category?: string,
+  source?: string,
+  signal?: AbortSignal
+) => {
   const params: any = { limit };
   if (cursor !== undefined) params.cursor = cursor;
   if (category) params.category = category;
   if (source) params.source = source;
-  const { data } = await apiClient.get('/api/news', { params });
+  const { data } = await apiClient.get('/api/news', { params, signal });
   return data as { data: any[]; nextCursor: number | null };
 };
 
