@@ -40,6 +40,7 @@ import { MaintenanceScreen } from './src/screens/MaintenanceScreen';
 import { OnboardingFlow } from './src/screens/OnboardingFlow';
 import { NoInternetScreen } from './src/screens/NoInternetScreen';
 import { fetchPublicStatus } from './src/api/config';
+import { setCrashContextScreen } from './src/utils/crashReporter';
 
 type OverlayScreen = ProfileDestination | 'profile';
 
@@ -433,6 +434,12 @@ function MainApp() {
       subscription.remove();
     };
   }, [appOpenUnitId, canShowAppOpen, isAdPlaying, recordAppOpenShown, setAdPlaying]);
+
+  // Keeps crash reports attributed to the screen the user was actually on,
+  // which is the difference between an actionable report and "it crashed".
+  useEffect(() => {
+    setCrashContextScreen(showGames ? 'games' : currentOverlay || activeTab);
+  }, [activeTab, currentOverlay, showGames]);
 
   useEffect(() => {
     let mounted = true;

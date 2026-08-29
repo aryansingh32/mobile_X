@@ -432,9 +432,19 @@ model ErrorLog {
   stack      String?  @db.Text
   createdAt  DateTime @default(now())
 
+  // SERVER = caught by sendServerError in the API. CLIENT = a crash/unhandled
+  // error on a real user's device, reported in via /api/telemetry/client-error.
+  // Client crashes are otherwise invisible: the app shows the ErrorBoundary's
+  // generic screen and the stack dies with the process.
+  source      String  @default("SERVER")
+  platform    String? // ios | android | web (client reports only)
+  appVersion  String?
+  fatal       Boolean @default(false) // true = crashed the render tree, not just a handled error
+
   @@index([userId, createdAt])
   @@index([createdAt])
   @@index([statusCode])
+  @@index([source, createdAt])
 }
 
 // A/B Testing System

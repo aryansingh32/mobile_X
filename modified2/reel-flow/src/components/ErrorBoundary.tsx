@@ -1,6 +1,7 @@
 import React from 'react';
 import { StyleSheet, Text, View, Pressable } from 'react-native';
 import { COLORS, RADIUS, SPACING, TYPOGRAPHY } from '../constants/theme';
+import { reportError } from '../utils/crashReporter';
 
 interface Props {
   children: React.ReactNode;
@@ -25,7 +26,16 @@ export class ErrorBoundary extends React.Component<Props, State> {
   }
 
   componentDidCatch(error: Error, info: React.ErrorInfo) {
-    console.error('ErrorBoundary caught a render error:', error, info.componentStack);
+    if (__DEV__) {
+      console.error('ErrorBoundary caught a render error:', error, info.componentStack);
+    }
+    // A render crash is the single worst thing a real user can hit, so it must
+    // reach the admin panel rather than dying with the process. Fatal: this
+    // took down the whole tree, not a handled failure.
+    reportError(error, {
+      fatal: true,
+      context: 'render',
+    });
   }
 
   handleRetry = () => {

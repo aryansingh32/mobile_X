@@ -61,22 +61,41 @@ export const getMarquee = async (req: AuthRequest, res: Response): Promise<void>
       getCustomMarqueeMessages(),
     ]);
 
-    const items: { id: string; text: string }[] = [];
+    const MAX_ITEMS = 24;
+
+    const organic: { id: string; text: string }[] = [];
     for (const w of withdrawals) {
-      items.push({ id: `w-${w.id}`, text: `${displayName(w.user.name)} withdrew ${w.amountCoins} VIB` });
+      organic.push({ id: `w-${w.id}`, text: `${displayName(w.user.name)} withdrew ${w.amountCoins} VIB` });
     }
     for (const r of referrals) {
-      items.push({ id: `r-${r.id}`, text: `${displayName(r.referrer.name)} referred a friend` });
+      organic.push({ id: `r-${r.id}`, text: `${displayName(r.referrer.name)} referred a friend` });
     }
     for (const b of badgesEarned) {
-      items.push({ id: `b-${b.id}`, text: `${displayName(b.user.name)} unlocked "${b.badge.name}"` });
+      organic.push({ id: `b-${b.id}`, text: `${displayName(b.user.name)} unlocked "${b.badge.name}"` });
     }
-    customMessages.forEach((text, i) => items.push({ id: `c-${i}`, text }));
 
-    // Interleave categories instead of running them in three separate blocks.
-    items.sort(() => Math.random() - 0.5);
+    const shuffle = <T,>(arr: T[]): T[] => {
+      // Fisher-Yates. `sort(() => Math.random() - 0.5)` is not a uniform
+      // shuffle — it biases toward the original order, so items near the end
+      // were disproportionately likely to survive the slice below.
+      for (let i = arr.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [arr[i], arr[j]] = [arr[j]!, arr[i]!];
+      }
+      return arr;
+    };
 
-    res.json({ items: items.slice(0, 24) });
+    // Admin-authored messages get reserved slots. Previously everything was
+    // pooled, shuffled, then sliced to 24 — so once organic activity exceeded
+    // that (which it does on any active app), a message the admin deliberately
+    // configured could be randomly dropped and never shown at all.
+    const custom = customMessages
+      .slice(0, MAX_ITEMS)
+      .map((text, i) => ({ id: `c-${i}`, text }));
+    const organicSlots = Math.max(0, MAX_ITEMS - custom.length);
+    const items = shuffle([...custom, ...shuffle(organic).slice(0, organicSlots)]);
+
+    res.json({ items });
   } catch (error: any) {
     sendServerError(res, error);
   }

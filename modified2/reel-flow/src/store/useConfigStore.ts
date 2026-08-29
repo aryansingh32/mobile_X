@@ -102,43 +102,63 @@ export const useConfigStore = create<ConfigState>()(
       hydrated: false,
       lastFetchedAt: 0,
 
-      setConfig: (config) =>
+      // Every field is coerced to a safe shape rather than trusted. The
+      // payload is cast straight from the network in api/config.ts with no
+      // validation, and whatever lands here is persisted to AsyncStorage — so
+      // a single malformed response (partial deploy, proxy error page, schema
+      // change) would otherwise write `undefined` into these maps, make
+      // getPlacement/getContent throw on property access, and keep the app
+      // broken across restarts until the user cleared storage.
+      setConfig: (config) => {
+        const asRecord = <T,>(value: unknown, previous: Record<string, T>): Record<string, T> =>
+          value !== null && typeof value === 'object' && !Array.isArray(value)
+            ? (value as Record<string, T>)
+            : previous;
+
+        const state = get();
         set({
-          version: config.version,
-          adPlacements: config.adPlacements,
-          adUnits: config.adUnits ?? {},
-          adMobAppIds: config.adMobAppIds,
-          adRewardRules: config.adRewardRules,
-          dailyCapPolicies: config.dailyCapPolicies,
-          contentStrings: config.contentStrings,
-          featureFlags: config.featureFlags,
-          screenSections: config.screenSections,
+          version: typeof config?.version === 'number' ? config.version : state.version,
+          adPlacements: asRecord(config?.adPlacements, state.adPlacements),
+          adUnits: asRecord(config?.adUnits, state.adUnits),
+          adMobAppIds: config?.adMobAppIds ?? state.adMobAppIds,
+          adRewardRules: asRecord(config?.adRewardRules, state.adRewardRules),
+          dailyCapPolicies: asRecord(config?.dailyCapPolicies, state.dailyCapPolicies),
+          contentStrings: asRecord(config?.contentStrings, state.contentStrings),
+          featureFlags: asRecord(config?.featureFlags, state.featureFlags),
+          screenSections: asRecord(config?.screenSections, state.screenSections),
           lastFetchedAt: Date.now(),
-        }),
+        });
+      },
 
       setFeatureFlag: (key, value) =>
         set((state) => ({ featureFlags: { ...state.featureFlags, [key]: value } })),
 
       setHydrated: (h) => set({ hydrated: h }),
 
+      // These read from persisted storage, which may predate the current
+      // shape (an older app version, or a payload written before setConfig
+      // validated anything), so each one tolerates a missing map instead of
+      // throwing on property access of undefined.
       getContent: (key, fallback) => {
-        return get().contentStrings[key] ?? fallback;
+        return get().contentStrings?.[key] ?? fallback;
       },
 
       getFlag: (key, fallback = true) => {
-        const val = get().featureFlags[key];
-        return val !== undefined ? val : fallback;
+        const val = get().featureFlags?.[key];
+        return typeof val === 'boolean' ? val : fallback;
       },
 
-      getPlacement: (key) => get().adPlacements[key],
+      getPlacement: (key) => get().adPlacements?.[key],
 
-      getRewardRule: (adType) => get().adRewardRules[adType],
+      getRewardRule: (adType) => get().adRewardRules?.[adType],
 
       getCapPolicy: (tier) =>
-        get().dailyCapPolicies[tier] ?? get().dailyCapPolicies['DEFAULT'],
+        get().dailyCapPolicies?.[tier] ?? get().dailyCapPolicies?.['DEFAULT'],
 
       getSections: (screen) =>
-        (get().screenSections[screen] || []).filter((s) => s.enabled).sort((a, b) => a.sortOrder - b.sortOrder),
+        (Array.isArray(get().screenSections?.[screen]) ? get().screenSections[screen]! : [])
+          .filter((s) => s?.enabled)
+          .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0)),
     }),
     {
       name: 'reelflow-config-store',

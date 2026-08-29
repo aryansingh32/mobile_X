@@ -12,12 +12,22 @@ type ErrorLogEntry = {
   message: string;
   stack: string | null;
   createdAt: string;
+  source: 'SERVER' | 'CLIENT';
+  platform: string | null;
+  appVersion: string | null;
+  fatal: boolean;
 };
 
 const STATUS_FILTERS = [
   { label: 'All', value: '' },
   { label: '5xx (server faults)', value: '500' },
   { label: '4xx (client errors)', value: '400' },
+];
+
+const SOURCE_FILTERS = [
+  { label: 'All sources', value: '' },
+  { label: 'App crashes', value: 'CLIENT' },
+  { label: 'Server errors', value: 'SERVER' },
 ];
 
 const ErrorLogsPage = () => {
@@ -27,6 +37,7 @@ const ErrorLogsPage = () => {
   const [search, setSearch] = useState('');
   const [userId, setUserId] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
+  const [sourceFilter, setSourceFilter] = useState('');
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [offset, setOffset] = useState(0);
   const limit = 50;
@@ -37,6 +48,7 @@ const ErrorLogsPage = () => {
       search: search || undefined,
       userId: userId || undefined,
       statusCode: statusFilter || undefined,
+      source: sourceFilter || undefined,
       limit,
       offset,
     })
@@ -94,6 +106,15 @@ const ErrorLogsPage = () => {
           className="w-32 bg-black/40 border border-gray-700 rounded-lg px-3 py-2 text-white text-sm"
         />
         <select
+          value={sourceFilter}
+          onChange={(e) => setSourceFilter(e.target.value)}
+          className="bg-black/40 border border-gray-700 rounded-lg px-3 py-2 text-white text-sm"
+        >
+          {SOURCE_FILTERS.map((f) => (
+            <option key={f.value} value={f.value}>{f.label}</option>
+          ))}
+        </select>
+        <select
           value={statusFilter}
           onChange={(e) => setStatusFilter(e.target.value)}
           className="bg-black/40 border border-gray-700 rounded-lg px-3 py-2 text-white text-sm"
@@ -116,12 +137,22 @@ const ErrorLogsPage = () => {
                 onClick={() => setExpandedId(expanded ? null : log.id)}
                 className="w-full flex items-start gap-3 text-left"
               >
-                <span className={`mt-0.5 px-2 py-0.5 rounded text-[11px] font-bold flex-shrink-0 ${log.statusCode >= 500 ? 'bg-red-900/50 text-red-400' : 'bg-yellow-900/40 text-yellow-400'}`}>
-                  {log.statusCode}
-                </span>
+                {log.source === 'CLIENT' ? (
+                  <span className={`mt-0.5 px-2 py-0.5 rounded text-[11px] font-bold flex-shrink-0 ${log.fatal ? 'bg-red-900/50 text-red-400' : 'bg-orange-900/40 text-orange-400'}`}>
+                    {log.fatal ? 'CRASH' : 'APP'}
+                  </span>
+                ) : (
+                  <span className={`mt-0.5 px-2 py-0.5 rounded text-[11px] font-bold flex-shrink-0 ${log.statusCode >= 500 ? 'bg-red-900/50 text-red-400' : 'bg-yellow-900/40 text-yellow-400'}`}>
+                    {log.statusCode}
+                  </span>
+                )}
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap text-xs text-gray-500 mb-1">
-                    <span className="font-mono">{log.method} {log.path}</span>
+                    <span className="font-mono">
+                      {log.source === 'CLIENT'
+                        ? `${log.platform || 'app'}${log.appVersion ? ` v${log.appVersion}` : ''} · ${log.path}`
+                        : `${log.method} ${log.path}`}
+                    </span>
                     <span>·</span>
                     <span>{new Date(log.createdAt).toLocaleString()}</span>
                     <span>·</span>

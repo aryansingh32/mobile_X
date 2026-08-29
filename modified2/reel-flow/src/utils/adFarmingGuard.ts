@@ -20,8 +20,11 @@ type AdEventPayload = {
  * for CLOSED/DISMISSED handlers specifically.
  */
 export const reportAdEventWithPenaltyCheck = async (event: AdEventPayload): Promise<void> => {
+  // api/config.ts's reportAdEvent currently always resolves to an object, but
+  // this runs inside AdMob close/dismiss callbacks — a throw here would break
+  // the ad flow itself, so don't depend on that guarantee holding across files.
   const result = await reportAdEvent(event);
-  if (result.penaltyUntil) {
+  if (result?.penaltyUntil) {
     useAppStore.getState().setAdPenaltyUntil(result.penaltyUntil);
   }
 };

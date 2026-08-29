@@ -597,6 +597,21 @@ async function testBadgesLeaderboardMarquee() {
   assertStatus(marqueeRes.status, 200, 'GET /api/marquee succeeds');
   const items: any[] = marqueeRes.data?.items ?? [];
   assert(items.some((i) => i.text === 'E2E test promo message'), 'admin-authored custom marquee messages are merged into the real feed');
+
+  // The feed is capped and shuffled, so an admin-authored message used to be
+  // droppable at random once organic activity filled the cap — the admin
+  // configures a message and it silently never shows. Custom messages now get
+  // reserved slots; repeat the fetch so a random pass can't look like a real
+  // one (this failed intermittently before the fix).
+  const manyMessages = Array.from({ length: 5 }, (_, i) => `E2E reserved slot ${i}`);
+  await setConfig('marquee_custom_messages', JSON.stringify(manyMessages));
+  let allPresentEveryTime = true;
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const res = await poorUser.client.get('/api/marquee');
+    const texts = (res.data?.items ?? []).map((i: any) => i.text);
+    if (!manyMessages.every((m) => texts.includes(m))) allPresentEveryTime = false;
+  }
+  assert(allPresentEveryTime, 'every admin-authored message survives the feed cap on every fetch, never dropped by the shuffle');
 }
 
 async function testAdminEndpoints() {
@@ -647,6 +662,71 @@ async function testAdminEndpoints() {
   assert(!!flaggedEntry, 'the ADMIN leaderboard (unlike the user-facing one) keeps banned users visible for fraud review');
 }
 
+async function testClientCrashReporting() {
+  section('Client crash reporting — device crashes reach the admin panel');
+  const { user, client } = await createTestUser();
+
+  const fatal = await client.post('/api/telemetry/client-error', {
+    message: "TypeError: Cannot read property 'id' of undefined",
+    stack: 'TypeError: ...\n    at ShortItem (src/components/shorts/ShortItem.tsx:120:5)',
+    platform: 'android',
+    appVersion: '1.1',
+    fatal: true,
+    screen: 'shorts',
+  });
+  assertStatus(fatal.status, 200, 'a fatal render crash from a device is accepted');
+
+  const row = await prisma.errorLog.findFirst({ where: { userId: user.id }, orderBy: { createdAt: 'desc' } });
+  assert(!!row, 'the crash is persisted to ErrorLog');
+  assertEqual(row?.source, 'CLIENT', 'it is tagged source=CLIENT, not mixed in with server faults');
+  assertEqual(row?.platform, 'android', 'platform is captured for triage');
+  assertEqual(row?.path, 'shorts', 'the screen it crashed on is captured');
+  assertEqual(row?.fatal, true, 'the fatal flag distinguishes a crash from a handled error');
+  assert(!!row?.stack && row!.stack!.includes('ShortItem'), 'the full stack trace is retained for the admin panel');
+
+  const noMessage = await client.post('/api/telemetry/client-error', { platform: 'android' });
+  assertStatus(noMessage.status, 400, 'a report with no message is rejected, not stored');
+
+  const bogus = await client.post('/api/telemetry/client-error', {
+    message: 'x'.repeat(2500),
+    stack: 'y'.repeat(4000),
+    platform: 'not-a-real-platform',
+    appVersion: 'z'.repeat(500),
+    screen: 'w'.repeat(2000),
+  });
+  assertStatus(bogus.status, 200, 'oversized/invalid fields are accepted rather than 500ing at a crashing app');
+  const sanitized = await prisma.errorLog.findFirst({ where: { userId: user.id }, orderBy: { createdAt: 'desc' } });
+  assert((sanitized?.message.length ?? 0) <= 2000, 'message is clamped to its column bound');
+  assert((sanitized?.stack?.length ?? 0) <= 8000, 'stack is clamped to its column bound');
+  assertEqual(sanitized?.platform, null, 'an unrecognized platform is stored as null, not echoed back');
+  assert((sanitized?.path.length ?? 0) <= 500, 'the screen field is clamped');
+
+  // Regression guard: the client truncates to 1000/4000 chars precisely so a
+  // real crash never trips express.json's 10kb limit. If this starts 413ing,
+  // the worst crashes (deepest stacks) become the ones silently lost.
+  const atClientCaps = await client.post('/api/telemetry/client-error', {
+    message: 'm'.repeat(1000),
+    stack: 's'.repeat(4000),
+    platform: 'ios',
+    appVersion: '1.1',
+    fatal: true,
+    screen: 'shorts',
+  });
+  assertStatus(atClientCaps.status, 200, "a report at the client's own size caps is not rejected as too large");
+
+  const anon = await axios.post(`${BASE_URL}/api/telemetry/client-error`, { message: 'anon' }, { validateStatus: () => true });
+  assert(anon.status === 401 || anon.status === 403, 'an unauthenticated crash report is rejected');
+
+  const admin = await createTestUser({ role: 'SUPER_ADMIN' });
+  const listed = await admin.client.get(`/api/admin/error-logs?source=CLIENT&userId=${user.id}`);
+  assertStatus(listed.status, 200, 'admin can list client crashes filtered by source');
+  assert((listed.data.data ?? []).length > 0, 'the crash is visible in the admin error log');
+  assert((listed.data.data ?? []).every((r: any) => r.source === 'CLIENT'), 'the source filter returns only CLIENT rows');
+
+  const serverOnly = await admin.client.get(`/api/admin/error-logs?source=SERVER&userId=${user.id}`);
+  assertEqual((serverOnly.data.data ?? []).length, 0, "filtering to SERVER excludes this user's app crashes");
+}
+
 // ─────────────────────────────────────────────────────────
 // Runner
 // ─────────────────────────────────────────────────────────
@@ -680,6 +760,7 @@ async function main() {
     ['discover', testDiscoverReadReward],
     ['badges/leaderboard/marquee', testBadgesLeaderboardMarquee],
     ['admin', testAdminEndpoints],
+    ['client-crash-reporting', testClientCrashReporting],
   ];
 
   for (const [name, fn] of sections) {

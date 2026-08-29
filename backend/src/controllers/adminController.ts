@@ -756,10 +756,18 @@ export const getErrorLogs = async (req: Request, res: Response) => {
     const userId = req.query.userId ? parseInt(req.query.userId as string) : undefined;
     const statusCode = req.query.statusCode ? parseInt(req.query.statusCode as string) : undefined;
     const search = typeof req.query.search === 'string' ? req.query.search.trim() : '';
+    const source = req.query.source === 'CLIENT' || req.query.source === 'SERVER' ? req.query.source : undefined;
 
     const where: any = {};
     if (Number.isFinite(userId)) where.userId = userId;
-    if (Number.isFinite(statusCode)) where.statusCode = statusCode;
+    // The UI offers "5xx"/"4xx" buckets, so treat a round hundred as the whole
+    // class — an exact match would silently hide 502s from a "5xx" filter.
+    if (Number.isFinite(statusCode)) {
+      where.statusCode = statusCode! % 100 === 0
+        ? { gte: statusCode, lt: statusCode! + 100 }
+        : statusCode;
+    }
+    if (source) where.source = source;
     if (search) {
       where.OR = [
         { message: { contains: search, mode: 'insensitive' } },

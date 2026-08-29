@@ -25,11 +25,19 @@ apiClient.interceptors.request.use((config) => {
   config.headers['x-api-timestamp'] = timestamp;
   config.headers['x-api-nonce'] = nonce;
   
-  const sortObjectKeys = (obj: any): any => {
+  // MUST stay byte-for-byte identical to signatureMiddleware.ts's own
+  // sortObjectKeys, including the depth cap: the server stops sorting past
+  // depth 5 (a DoS guard against deeply nested payloads), so a client that
+  // kept sorting deeper would produce a different JSON string and get every
+  // such request rejected with 401. See src/api/__tests__/client.test.ts,
+  // which pins both implementations against each other.
+  const MAX_SIGNING_DEPTH = 5;
+  const sortObjectKeys = (obj: any, depth = 0): any => {
+    if (depth > MAX_SIGNING_DEPTH) return obj;
     if (obj === null || typeof obj !== 'object') return obj;
-    if (Array.isArray(obj)) return obj.map(sortObjectKeys);
+    if (Array.isArray(obj)) return obj.map((item) => sortObjectKeys(item, depth + 1));
     return Object.keys(obj).sort().reduce((acc: any, key) => {
-      acc[key] = sortObjectKeys(obj[key]);
+      acc[key] = sortObjectKeys(obj[key], depth + 1);
       return acc;
     }, {});
   };

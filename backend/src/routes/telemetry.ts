@@ -3,8 +3,53 @@ import { authenticate } from '../middlewares/authMiddleware';
 import prisma from '../config/db';
 import logger from '../utils/logger';
 import { checkAndAwardBadges } from '../services/badgeService';
+import { clientErrorLimiter } from '../middlewares/securityMiddleware';
 
 const router = Router();
+
+const VALID_PLATFORMS = new Set(['ios', 'android', 'web']);
+
+// ── POST /client-error — crash/error reports from a real user's device ───────
+// Without this, a crash on a user's phone is invisible: the app renders the
+// ErrorBoundary's generic screen and the stack dies with the process. These
+// land in the same ErrorLog table as server errors (source='CLIENT'), so the
+// admin panel shows one timeline per user across both sides.
+//
+// Everything here is untrusted input from a client that is already
+// malfunctioning, so every field is length-capped and type-checked, and a
+// malformed report is dropped rather than 500ing back at a crashing app.
+router.post('/client-error', authenticate, clientErrorLimiter, async (req: any, res) => {
+  const { message, stack, platform, appVersion, fatal, screen } = req.body ?? {};
+
+  if (typeof message !== 'string' || message.trim().length === 0) {
+    res.status(400).json({ error: 'message is required' });
+    return;
+  }
+
+  try {
+    await prisma.errorLog.create({
+      data: {
+        userId: req.user.id,
+        source: 'CLIENT',
+        method: 'CLIENT',
+        // `screen` is where in the app it blew up — the closest client-side
+        // analogue to a request path, and what makes the admin log readable.
+        path: typeof screen === 'string' ? screen.slice(0, 500) : 'unknown',
+        statusCode: 0, // not an HTTP failure; keeps 4xx/5xx filters meaningful
+        message: message.slice(0, 2000),
+        stack: typeof stack === 'string' ? stack.slice(0, 8000) : null,
+        platform: typeof platform === 'string' && VALID_PLATFORMS.has(platform) ? platform : null,
+        appVersion: typeof appVersion === 'string' ? appVersion.slice(0, 40) : null,
+        fatal: fatal === true,
+      },
+    });
+    res.json({ success: true });
+  } catch (err: any) {
+    // Never surface a logging failure to a client that is already crashing.
+    logger.error('Failed to persist client error report', { error: err?.message });
+    res.json({ success: true });
+  }
+});
 
 // ── Internal helper ───────────────────────────────────────────────────────────
 // Processes a single telemetry event. Used by both /track and /batch.
