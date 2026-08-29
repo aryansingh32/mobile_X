@@ -1,0 +1,171 @@
+name: CI
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+# A newer push to the same branch makes an in-flight run obsolete.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend — typecheck, unit tests, E2E
+    runs-on: ubuntu-latest
+
+    # The E2E suite runs against a real Postgres and Redis rather than mocks;
+    # it was written to catch exactly the integration bugs mocks hide.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: mobile_x_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:7
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/mobile_x_test
+      REDIS_URL: redis://localhost:6379/0
+      REDIS_HOST: localhost
+      REDIS_PORT: '6379'
+      # CI-only dummy secrets. Real values live in the deploy environment;
+      # these exist so the app boots and signs requests during tests.
+      JWT_SECRET: ci-test-jwt-secret-not-used-in-production
+      API_CLIENT_SECRET: ci-test-api-client-secret-not-used-in-production
+      NODE_ENV: test
+      PORT: '5000'
+
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Apply migrations
+        # migrate deploy (not db push) so CI exercises the same migration
+        # history production runs — a missing migration fails here, which is
+        # how an entire set of tables once went unmigrated.
+        run: npx prisma migrate deploy
+
+      - name: Check migrations match schema.prisma
+        # Guards the failure mode that once left 11 tables out of the
+        # migration history entirely: the schema and the code agreed, so
+        # everything passed locally, while a fresh deploy would have been
+        # missing those tables. Fails if any schema change lacks a migration.
+        run: |
+          npx prisma migrate diff \
+            --from-url "$DATABASE_URL" \
+            --to-schema-datamodel prisma/schema.prisma \
+            --exit-code && echo "schema and migrations agree"
+
+      - name: Generate Prisma client
+        run: npx prisma generate
+
+      - name: Typecheck
+        run: npx tsc --noEmit -p .
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Start API server
+        run: |
+          npx ts-node --transpile-only src/index.ts > /tmp/server.log 2>&1 &
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:5000/api/health > /dev/null; then
+              echo "server up after ${i}s"; exit 0
+            fi
+            sleep 1
+          done
+          echo "server failed to start"; cat /tmp/server.log; exit 1
+
+      - name: E2E scenario suite
+        run: npm run test:e2e
+
+      - name: Server log on failure
+        if: failure()
+        run: cat /tmp/server.log || true
+
+  mobile:
+    name: Mobile app — typecheck and tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: modified2/reel-flow
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: modified2/reel-flow/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        # The default stack overflows typechecking this project's component
+        # tree; this is a tsc limitation, not a type error.
+        run: node --stack-size=8000 node_modules/typescript/bin/tsc --noEmit
+
+      - name: Tests
+        run: npm test
+
+  admin-panel:
+    name: Admin panel — build, lint, tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: admin-panel
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: admin-panel/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build (includes typecheck)
+        run: npm run build
+
+      - name: Tests
+        run: npm test
+
+      - name: Lint
+        # The repo carries pre-existing lint debt (no-explicit-any across
+        # older pages), so this reports without failing the build. Drop
+        # continue-on-error once that backlog is cleared.
+        continue-on-error: true
+        run: npm run lint
