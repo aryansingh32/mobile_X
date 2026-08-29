@@ -39,7 +39,7 @@ export const addLedgerEntry = async (
   client?: LedgerClient
 ) => {
   if (!Number.isInteger(amount) || amount === 0) {
-    throw new Error('Ledger amount must be a non-zero integer');
+    throw Object.assign(new Error('Ledger amount must be a non-zero integer'), { statusCode: 400 });
   }
 
   const idempotencyKey = sessionId
@@ -59,7 +59,14 @@ export const addLedgerEntry = async (
     if (amount < 0) {
       const balance = await sumEffectiveBalance(db, userId);
       if (balance + amount < 0) {
-        throw new Error('Insufficient coin balance');
+        // Annotated so every caller — withdrawal, streak-freeze purchase,
+        // admin balance adjustments, anything that debits — surfaces this
+        // as a normal, user-actionable 400 instead of a 500. Found live:
+        // requestWithdrawal used sendControllerError, which only maps a
+        // 4xx if the error carries a statusCode; without this it fell
+        // through to a 500 for the completely routine case of a user
+        // trying to redeem more than they have.
+        throw Object.assign(new Error('Insufficient coin balance'), { statusCode: 400 });
       }
     }
 

@@ -14,5 +14,9 @@ dist/
 logs/
 *.log
 
+# local Redis dump (created by `redis-server` when run locally, e.g. for
+# the E2E suite in src/scripts/e2eSmokeTest.ts)
+*.rdb
+
 # OS
 .DS_Store

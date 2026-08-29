@@ -12,7 +12,8 @@
     "prisma:push": "prisma db push",
     "seed:ad-config": "ts-node --transpile-only src/scripts/seedAdConfig.ts",
     "seed:badges": "ts-node --transpile-only src/scripts/seedBadges.ts",
-    "test": "jest"
+    "test": "jest",
+    "test:e2e": "ts-node --transpile-only src/scripts/e2eSmokeTest.ts"
   },
   "engines": {
     "node": ">=20.0.0"

@@ -15,7 +15,13 @@ export const sendServerError = (
   res: Response,
   error: any,
   fallbackMessage = 'Something went wrong. Please try again.',
-  statusCode = 500,
+  // Callers that don't pass an explicit statusCode still get the right one
+  // for errors deliberately annotated with `.statusCode` (e.g. ledgerService's
+  // "Insufficient coin balance") — previously every sendServerError(res, error)
+  // call defaulted straight to 500 regardless of what the error actually was,
+  // which is exactly the class of bug live end-to-end testing caught: a
+  // routine "not enough coins" response surfacing as a server fault.
+  statusCode = error?.statusCode || 500,
 ): void => {
   logger.error(error?.message || 'Unknown error', {
     stack: error?.stack,

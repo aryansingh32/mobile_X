@@ -98,7 +98,13 @@ export const addExp = async (userId: number, xpToAdd: number) => {
   ]);
 
   const previousLevel = updatedUser.level;
-  const newLevel = computeLevelForXp(updatedUser.xp, thresholds);
+  // Never let a level go DOWN. Levels are normally always in sync with XP
+  // since this is the only place level is ever written — but an admin
+  // editing `level_xp_thresholds` (Progression page) after users have
+  // already reached a level under the old table is a real, expected
+  // scenario, and their next XP gain must not silently demote them just
+  // because their stored XP no longer clears the new, larger requirement.
+  const newLevel = Math.max(previousLevel, computeLevelForXp(updatedUser.xp, thresholds));
 
   if (newLevel !== previousLevel) {
     await prisma.user.update({ where: { id: userId }, data: { level: newLevel } });
