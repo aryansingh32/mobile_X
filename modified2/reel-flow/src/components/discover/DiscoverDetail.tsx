@@ -94,12 +94,19 @@ export const DiscoverDetail: React.FC<Props> = ({ data, layout, onClose }) => {
       if (!startedAt || readClaimedIdsRef.current.has(articleId)) return;
       const elapsedSeconds = Math.floor((Date.now() - startedAt) / 1000);
       if (elapsedSeconds < 1) return;
+      // Marked before the request so a second unmount can't double-claim, but
+      // released again if the request never landed — otherwise a moment of bad
+      // signal silently forfeits XP the user actually earned, with no way to
+      // retry it this session. The server dedupes per article per day anyway,
+      // so a retry is safe.
       readClaimedIdsRef.current.add(articleId);
       claimReadReward(articleId, elapsedSeconds)
         .then((res) => {
           if (res.xpGained > 0) showToast(`+${res.xpGained} XP for reading`, 'success');
         })
-        .catch(() => {});
+        .catch(() => {
+          readClaimedIdsRef.current.delete(articleId);
+        });
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data?.id]);

@@ -176,7 +176,7 @@ const BottomNavBar: React.FC<BottomNavBarProps> = ({ activeTab = 'home', onTabCh
             <Path fill={NAV_TOKENS.navBg} d="M 0 1 L 990 1 C 1015 1, 1010 39, 1040 39 C 1070 39, 1065 1, 1090 1 L 2080 1 L 2080 80 L 0 80 Z" />
           </AnimatedSvg>
 
-          <View style={styles.tabsRow}>
+          <View style={styles.tabsRow} accessibilityRole="tablist">
             {TABS.map((tab) => {
               const isActive = activeTab === tab.id;
               return (
@@ -184,12 +184,19 @@ const BottomNavBar: React.FC<BottomNavBarProps> = ({ activeTab = 'home', onTabCh
                   key={tab.id}
                   style={styles.tab}
                   activeOpacity={0.7}
+                  // The active tab's icon is drawn by a separate floating
+                  // circle outside this row, so a screen reader would
+                  // otherwise announce the tab with no indication of which
+                  // one is selected. `selected` supplies that state.
+                  accessibilityRole="tab"
+                  accessibilityState={{ selected: isActive }}
+                  accessibilityLabel={tab.label}
                   onPress={() => {
                     triggerHaptic('selection', 'haptics_navigation');
                     onTabChange?.(tab.id);
                   }}
                 >
-                  <View style={[styles.iconContainerInactive, { opacity: isActive ? 0 : 1 }]}>
+                  <View style={[styles.iconContainerInactive, { opacity: isActive ? 0 : 1 }]} importantForAccessibility="no-hide-descendants">
                     {tab.icon(false, NAV_TOKENS.iconInactive)}
                   </View>
                   <Text style={isActive ? styles.labelActive : styles.labelInactive}>{tab.label}</Text>

@@ -147,6 +147,9 @@ export const RewardsScreen = () => {
           key={tab}
           style={[styles.tab, activeTab === tab && styles.activeTab]}
           onPress={() => setActiveTab(tab)}
+          accessibilityRole="tab"
+          accessibilityState={{ selected: activeTab === tab }}
+          accessibilityLabel={tab.charAt(0).toUpperCase() + tab.slice(1)}
         >
           <Text style={[styles.tabText, activeTab === tab && styles.activeTabText]}>
             {tab.charAt(0).toUpperCase() + tab.slice(1)}
@@ -175,7 +178,7 @@ export const RewardsScreen = () => {
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#FFD700" />}
       >
         {error ? (
-          <TouchableOpacity style={styles.errorCard} onPress={() => loadData()}>
+          <TouchableOpacity style={styles.errorCard} onPress={() => loadData()} accessibilityRole="button" accessibilityLabel={`${error} Tap to retry.`}>
             <Text style={styles.errorText}>{error} Tap to retry.</Text>
           </TouchableOpacity>
         ) : null}
@@ -208,6 +211,11 @@ export const RewardsScreen = () => {
                     style={[styles.startButton, busyTaskId === task.id && styles.buttonDisabled]}
                     onPress={() => handleTask(String(task.id))}
                     disabled={busyTaskId !== null}
+                    accessibilityRole="button"
+                    accessibilityState={{ disabled: busyTaskId !== null, busy: busyTaskId === task.id }}
+                    // The reward amount sits in a sibling Text node next to an
+                    // icon, so name the whole action rather than just "Complete".
+                    accessibilityLabel={busyTaskId === task.id ? 'Working' : `Complete ${task.title ?? 'task'} for ${task.reward} coins`}
                   >
                     <Text style={styles.startButtonText}>{busyTaskId === task.id ? 'Working…' : 'Complete'}</Text>
                   </TouchableOpacity>
@@ -222,10 +230,10 @@ export const RewardsScreen = () => {
               <View style={styles.codeRow}>
                 <Text style={styles.codeText}>{user?.referralCode || 'LOADING'}</Text>
                 <View style={{ flexDirection: 'row' }}>
-                  <TouchableOpacity style={styles.iconBtn} onPress={() => copyToClipboard(user?.referralCode || '')}>
+                  <TouchableOpacity style={styles.iconBtn} onPress={() => copyToClipboard(user?.referralCode || '')} accessibilityRole="button" accessibilityLabel="Copy your referral code">
                     <Copy color="#FFF" size={20} />
                   </TouchableOpacity>
-                  <TouchableOpacity style={styles.iconBtn} onPress={() => shareCode(user?.referralCode || '')}>
+                  <TouchableOpacity style={styles.iconBtn} onPress={() => shareCode(user?.referralCode || '')} accessibilityRole="button" accessibilityLabel="Share your referral code">
                     <Share2 color="#FFF" size={20} />
                   </TouchableOpacity>
                 </View>
@@ -277,6 +285,9 @@ export const RewardsScreen = () => {
                 style={[styles.claimButton, !dailyBonusAvailable && styles.buttonDisabled]}
                 onPress={handleClaimDailyBonus}
                 disabled={!dailyBonusAvailable}
+                accessibilityRole="button"
+                accessibilityState={{ disabled: !dailyBonusAvailable }}
+                accessibilityLabel={dailyBonusAvailable ? 'Claim your daily bonus' : 'Daily bonus already claimed today'}
               >
                 <Text style={styles.claimButtonText}>{dailyBonusAvailable ? 'Claim' : 'Claimed'}</Text>
               </TouchableOpacity>

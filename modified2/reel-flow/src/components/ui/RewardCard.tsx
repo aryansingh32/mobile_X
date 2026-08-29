@@ -75,12 +75,22 @@ const RewardCard = ({ coins, onWatch, onSkip, duration = '~30 seconds', claimed 
                 onPress={onWatch}
                 onPressIn={onWatchPressIn}
                 onPressOut={onWatchPressOut}
+                accessibilityRole="button"
+                // The visible label is just "Watch Now"; the reward amount
+                // lives in separate Text nodes, so spell out the whole offer
+                // for a screen reader rather than announcing a bare verb.
+                accessibilityLabel={`Watch a sponsored video to earn ${coins} coins`}
               >
                 <Text style={styles.watchText}>Watch Now</Text>
               </Pressable>
             </Animated.View>
             {onSkip && (
-              <Pressable onPress={onSkip} style={({ pressed }) => [styles.skipBtn, pressed && styles.pressedDim]}>
+              <Pressable
+                onPress={onSkip}
+                style={({ pressed }) => [styles.skipBtn, pressed && styles.pressedDim]}
+                accessibilityRole="button"
+                accessibilityLabel="Skip this sponsored offer"
+              >
                 <Text style={styles.skipText}>Skip</Text>
               </Pressable>
             )}

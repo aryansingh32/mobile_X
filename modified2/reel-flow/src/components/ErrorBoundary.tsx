@@ -48,7 +48,13 @@ export class ErrorBoundary extends React.Component<Props, State> {
         <View style={styles.container}>
           <Text style={styles.title}>Something went wrong</Text>
           <Text style={styles.subtitle}>Sorry about that — please try again.</Text>
-          <Pressable style={({ pressed }) => [styles.button, pressed && styles.buttonPressed]} onPress={this.handleRetry}>
+          <Pressable
+            style={({ pressed }) => [styles.button, pressed && styles.buttonPressed]}
+            onPress={this.handleRetry}
+            accessibilityRole="button"
+            accessibilityLabel="Try again"
+            accessibilityHint="Reloads the screen after an error"
+          >
             <Text style={styles.buttonText}>Try Again</Text>
           </Pressable>
         </View>

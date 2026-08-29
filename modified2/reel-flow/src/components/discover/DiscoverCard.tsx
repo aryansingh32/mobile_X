@@ -122,6 +122,10 @@ export const DiscoverCard: React.FC<Props> = ({ data, index, scrollY, onPress, i
             pressed && !data.isAd && { opacity: 0.75 },
           ]}
           onPress={data.isAd ? undefined : handlePress}
+          // Ad cards have their own CTA button below and aren't tappable as a
+          // whole, so only the article cards announce as buttons.
+          accessibilityRole={data.isAd ? undefined : 'button'}
+          accessibilityLabel={data.isAd ? undefined : `${data.title || 'Article'}. Tap to read.`}
         >
         {data.isAd ? (
           <View style={styles.adContent}>
@@ -160,6 +164,15 @@ export const DiscoverCard: React.FC<Props> = ({ data, index, scrollY, onPress, i
                 onPressIn={() => Animated.spring(adCtaScale, { toValue: MOTION.press_scale, useNativeDriver: true, ...MOTION.spring_snappy }).start()}
                 onPressOut={() => Animated.spring(adCtaScale, { toValue: 1, useNativeDriver: true, ...MOTION.spring_snappy }).start()}
                 onPress={() => onPress(data, { x: 0, y: 0, width: 0, height: 0 })}
+                accessibilityRole="button"
+                accessibilityState={{ disabled: !adButtonActive || isLoading, busy: isLoading }}
+                accessibilityLabel={
+                  isLoading
+                    ? 'Loading advertisement'
+                    : adButtonActive
+                      ? `Watch a sponsored video${rewardCoins > 0 ? ` to earn ${rewardCoins} coins` : ''}`
+                      : 'Sponsored video not ready yet'
+                }
               >
                 {isLoading ? (
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>

@@ -438,7 +438,7 @@ export const WalletScreen = () => {
 
       <ScrollView style={styles.content}>
         {error ? (
-          <TouchableOpacity style={styles.errorCard} onPress={() => loadData()}>
+          <TouchableOpacity style={styles.errorCard} onPress={() => loadData()} accessibilityRole="button" accessibilityLabel={`${error} Tap to retry.`}>
             <Text style={styles.errorText}>{error} Tap to retry.</Text>
           </TouchableOpacity>
         ) : null}
@@ -458,7 +458,17 @@ export const WalletScreen = () => {
                   const soldOut = Boolean(item.soldOut);
                   const cashValue = (item.coinCost * coinToInrRate).toFixed(2);
                   return (
-                    <TouchableOpacity key={item.id} style={[styles.catalogCard, (!canAfford || soldOut) && styles.catalogCardDisabled]} onPress={() => canAfford && !soldOut && setSelectedItem(item)} activeOpacity={0.85}>
+                    <TouchableOpacity
+                      key={item.id}
+                      style={[styles.catalogCard, (!canAfford || soldOut) && styles.catalogCardDisabled]}
+                      onPress={() => canAfford && !soldOut && setSelectedItem(item)}
+                      activeOpacity={0.85}
+                      accessibilityRole="button"
+                      accessibilityState={{ disabled: !canAfford || soldOut }}
+                      // Affordability and stock are conveyed only by dimming
+                      // the card, which a screen reader cannot see.
+                      accessibilityLabel={`${item.name}. ${item.coinCost} coins, about ${cashValue} rupees.${soldOut ? ' Sold out.' : canAfford ? '' : ' Not enough coins yet.'}`}
+                    >
                       <View style={styles.itemTypeBadge}>
                         {item.type === 'UPI' ? <IndianRupee size={16} color="#FFF" /> : <Gift size={16} color="#FFF" />}
                       </View>
@@ -596,7 +606,12 @@ export const WalletScreen = () => {
                   <Text style={styles.redeemHelp}>and INR values are driven by the admin economy config.</Text>
                 </View>
               </View>
-              <TouchableOpacity onPress={() => { setSelectedItem(null); setDestinationId(''); }} style={styles.closeBtn}>
+              <TouchableOpacity
+                onPress={() => { setSelectedItem(null); setDestinationId(''); }}
+                style={styles.closeBtn}
+                accessibilityRole="button"
+                accessibilityLabel="Close redemption sheet"
+              >
                 <XIcon />
               </TouchableOpacity>
             </View>
@@ -626,10 +641,17 @@ export const WalletScreen = () => {
               />
             )}
             <View style={styles.sheetActions}>
-              <TouchableOpacity style={styles.cancelBtn} onPress={() => { setSelectedItem(null); setDestinationId(''); }} disabled={submitting}>
+              <TouchableOpacity style={styles.cancelBtn} onPress={() => { setSelectedItem(null); setDestinationId(''); }} disabled={submitting} accessibilityRole="button" accessibilityLabel="Cancel redemption">
                 <Text style={styles.cancelText}>Cancel</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={[styles.confirmBtn, submitting && styles.redeemBtnDisabled]} onPress={handleRedeem} disabled={submitting}>
+              <TouchableOpacity
+                style={[styles.confirmBtn, submitting && styles.redeemBtnDisabled]}
+                onPress={handleRedeem}
+                disabled={submitting}
+                accessibilityRole="button"
+                accessibilityState={{ disabled: submitting, busy: submitting }}
+                accessibilityLabel={submitting ? 'Submitting redemption' : `Confirm redemption for ${selectedItem.coinCost} coins`}
+              >
                 <View style={styles.confirmTextContainer}>
                   {submitting ? <Text style={styles.confirmText}>Submitting…</Text> : (
                     <View style={{flexDirection: 'row', alignItems: 'center'}}>
