@@ -156,3 +156,17 @@ export const createRouletteItem = (data: any) => api.post('/admin/roulette', dat
 export const updateRouletteItem = (id: number, data: any) => api.put(`/admin/roulette/${id}`, data);
 export const deleteRouletteItem = (id: number) => api.delete(`/admin/roulette/${id}`);
 export const getRouletteAnalytics = () => api.get('/admin/roulette/analytics');
+
+// Badges
+export const getBadges = () => api.get('/admin/badges');
+export const createBadge = (data: any) => api.post('/admin/badges', data);
+export const updateBadge = (id: number, data: any) => api.put(`/admin/badges/${id}`, data);
+export const deleteBadge = (id: number) => api.delete(`/admin/badges/${id}`);
+export const getBadgeAnalytics = () => api.get('/admin/badges/analytics');
+
+// Leaderboard (read-only)
+export const getLeaderboardAdmin = (period: 'week' | 'month' | 'all' = 'all') =>
+  api.get('/admin/leaderboard', { params: { period } });
+
+// Marquee (read-only)
+export const getMarqueeAdmin = () => api.get('/admin/marquee');

@@ -10,7 +10,7 @@ type ConfigEntry = {
 type ConfigCategory = {
   title: string;
   subtitle: string;
-  tone: 'economy' | 'limits' | 'streaks' | 'behavior' | 'ads';
+  tone: 'economy' | 'limits' | 'streaks' | 'behavior' | 'ads' | 'retention';
   keys: string[];
 };
 
@@ -41,6 +41,14 @@ const descriptions: Record<string, string> = {
   xp_per_coin_ratio: 'Coins earned per 1 XP awarded (e.g. 2 = 1 XP per 2 coins).',
   streak_bonus_7: 'Bonus coins for reaching 7-day streak milestone.',
   streak_bonus_30: 'Bonus coins for reaching 30-day streak milestone.',
+  streak_bonus_100: 'Bonus coins for reaching 100-day streak milestone.',
+  signup_bonus_coins: 'One-time coins credited the moment a new account is created.',
+  streak_freeze_cost_coins: 'Coin cost to buy one streak-freeze token (auto-protects the next missed day).',
+  streak_freeze_max: 'Maximum streak-freeze tokens a user can hold at once.',
+  read_reward_min_seconds: 'Minimum dwell time on a Discover article before the read reward can be claimed.',
+  read_reward_daily_cap: 'Maximum read-reward claims counted per user per day.',
+  read_reward_xp: 'XP (not coins) awarded for a qualifying article read.',
+  roulette_level_bonus_interval: 'Levels per bonus roulette spin (e.g. 5 = +1 free spin every 5 levels).',
 };
 
 const categories: ConfigCategory[] = [
@@ -89,6 +97,21 @@ const categories: ConfigCategory[] = [
     tone: 'behavior',
     keys: ['short_watch_seconds_required', 'offerwall_demo_mode', 'post_ad_lockout_ms', 'referral_percent'],
   },
+  {
+    title: '🛡️ Retention & Engagement',
+    subtitle: 'Signup bonus, streak freezes, and the Discover read-reward — see the ReelFlow Dopamine Audit roadmap.',
+    tone: 'retention',
+    keys: [
+      'signup_bonus_coins',
+      'streak_bonus_100',
+      'streak_freeze_cost_coins',
+      'streak_freeze_max',
+      'read_reward_xp',
+      'read_reward_min_seconds',
+      'read_reward_daily_cap',
+      'roulette_level_bonus_interval',
+    ],
+  },
 ];
 
 const toneClasses = {
@@ -121,6 +144,12 @@ const toneClasses = {
     glow: 'shadow-[0_0_40px_rgba(34,211,238,0.10)]',
     pill: 'bg-cyan-400/10 text-cyan-200 border-cyan-400/25',
     dot: 'bg-cyan-400',
+  },
+  retention: {
+    border: 'border-pink-400/30',
+    glow: 'shadow-[0_0_40px_rgba(244,114,182,0.10)]',
+    pill: 'bg-pink-400/10 text-pink-300 border-pink-400/25',
+    dot: 'bg-pink-400',
   },
 };
 

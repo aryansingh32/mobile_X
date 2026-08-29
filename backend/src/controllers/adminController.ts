@@ -691,8 +691,49 @@ export const sendNotification = async (req: Request, res: Response): Promise<voi
     }
 
     await Promise.allSettled(userIds.map(userId => sendToUser(userId, title.trim(), body.trim(), 'SYSTEM')));
-    
+
     await logAdminAction(req, 'SEND_NOTIFICATION', `Sent push to ${target}: ${title}`);
     res.json({ message: `Notification processed for ${userIds.length} users.`, recipients: userIds.length });
+  } catch (error: any) { sendServerError(res, error); }
+};
+
+// Admin-facing view of the same leaderboard the app shows users (see
+// getLeaderboard in userController.ts) — lets the team sanity-check top
+// earners for fraud signals without needing a personal "your rank" slot.
+export const getLeaderboardAdmin = async (req: Request, res: Response) => {
+  try {
+    const period = req.query.period === 'week' || req.query.period === 'month' ? req.query.period : 'all';
+
+    if (period === 'all') {
+      const top = await prisma.user.findMany({
+        orderBy: { totalCoinsEarned: 'desc' },
+        take: 100,
+        select: { id: true, name: true, email: true, totalCoinsEarned: true, level: true, banned: true, shadowBanned: true, trustScore: true, riskScore: true },
+      });
+      res.json({ data: { period, leaders: top.map((u, i) => ({ rank: i + 1, ...u, coins: u.totalCoinsEarned })) } });
+      return;
+    }
+
+    const since = new Date();
+    if (period === 'week') since.setDate(since.getDate() - 7);
+    else since.setMonth(since.getMonth() - 1);
+
+    const grouped = await prisma.coinLedger.groupBy({
+      by: ['userId'],
+      where: { amount: { gt: 0 }, timestamp: { gte: since }, NOT: { source: { startsWith: 'SHADOW_' } } },
+      _sum: { amount: true },
+      orderBy: { _sum: { amount: 'desc' } },
+      take: 100,
+    });
+    const users = await prisma.user.findMany({
+      where: { id: { in: grouped.map((g) => g.userId) } },
+      select: { id: true, name: true, email: true, level: true, banned: true, shadowBanned: true, trustScore: true, riskScore: true },
+    });
+    const userMap = new Map(users.map((u) => [u.id, u]));
+    const leaders = grouped
+      .filter((g) => userMap.has(g.userId))
+      .map((g, i) => ({ rank: i + 1, ...userMap.get(g.userId)!, coins: g._sum.amount || 0 }));
+
+    res.json({ data: { period, leaders } });
   } catch (error: any) { sendServerError(res, error); }
 };

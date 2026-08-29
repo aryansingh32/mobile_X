@@ -57,6 +57,7 @@ export const getProfile = async (req: any, res: Response) => {
       dailyBonusCoins,
       shortWatchRewardCoins,
       rouletteDailyChances,
+      levelBonusInterval,
       rouletteAdsWatchedToday,
       rouletteSpinsToday,
     ] = await Promise.all([
@@ -85,6 +86,7 @@ export const getProfile = async (req: any, res: Response) => {
       getConfigInt('daily_bonus_coins', 20),
       getConfigInt('short_watch_reward_coins', 0),
       getConfigInt('roulette_daily_chances', 2),
+      getConfigInt('roulette_level_bonus_interval', 5),
       prisma.coinLedger.count({
         where: {
           userId: user.id,
@@ -101,9 +103,9 @@ export const getProfile = async (req: any, res: Response) => {
       }),
     ]);
 
-    // Level-tied perk (kept identical to claimRouletteSpin's calc): every 5
-    // levels grants one extra free daily spin.
-    const levelBonusChances = Math.floor(user.level / 5);
+    // Level-tied perk (kept identical to claimRouletteSpin's calc): every N
+    // levels (admin-configurable) grants one extra free daily spin.
+    const levelBonusChances = Math.floor(user.level / Math.max(1, levelBonusInterval));
     const rouletteChancesRemaining = Math.max(0, rouletteDailyChances + levelBonusChances + rouletteAdsWatchedToday - rouletteSpinsToday);
 
     res.json({

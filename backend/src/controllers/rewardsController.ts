@@ -503,8 +503,9 @@ export const claimRouletteSpin = async (req: AuthRequest, res: Response): Promis
     todayStart.setHours(0, 0, 0, 0);
 
     // Get limits and chances
-    const [rouletteDailyChances, rouletteAdsWatchedToday, rouletteSpinsToday, activeSlices, spinningUser] = await Promise.all([
+    const [rouletteDailyChances, levelBonusInterval, rouletteAdsWatchedToday, rouletteSpinsToday, activeSlices, spinningUser] = await Promise.all([
       getConfigInt('roulette_daily_chances', 2),
+      getConfigInt('roulette_level_bonus_interval', 5),
       prisma.coinLedger.count({
         where: {
           userId,
@@ -527,10 +528,10 @@ export const claimRouletteSpin = async (req: AuthRequest, res: Response): Promis
       prisma.user.findUnique({ where: { id: userId }, select: { level: true } }),
     ]);
 
-    // A level-tied perk that doesn't touch monetary value — every 5 levels
-    // grants one extra free daily spin, so leveling up actually changes
-    // something instead of being a cosmetic number.
-    const levelBonusChances = Math.floor((spinningUser?.level ?? 1) / 5);
+    // A level-tied perk that doesn't touch monetary value — every N levels
+    // (admin-configurable) grants one extra free daily spin, so leveling up
+    // actually changes something instead of being a cosmetic number.
+    const levelBonusChances = Math.floor((spinningUser?.level ?? 1) / Math.max(1, levelBonusInterval));
     const chancesRemaining = rouletteDailyChances + levelBonusChances + rouletteAdsWatchedToday - rouletteSpinsToday;
     if (chancesRemaining <= 0) {
       res.status(429).json({ error: 'No spin chances remaining today' });

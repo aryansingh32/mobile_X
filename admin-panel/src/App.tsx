@@ -2,10 +2,10 @@ import React, { useState, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, NavLink } from 'react-router-dom';
 import { GoogleOAuthProvider } from '@react-oauth/google';
 import { 
-  ShieldCheck, Users, AlertTriangle, CreditCard, LayoutDashboard, 
+  ShieldCheck, Users, AlertTriangle, CreditCard, LayoutDashboard,
   Activity, Database, Settings, ShoppingBag,
   Radio, FileCode, Shield, LineChart, Target, Bell, FlaskConical, Network, CheckSquare,
-  LogOut, FileText, Layers, Terminal, MessageSquare, Filter, Play
+  LogOut, FileText, Layers, Terminal, MessageSquare, Filter, Play, Award, Trophy, Megaphone
 } from 'lucide-react';
 
 import AdminLogin from './pages/AdminLogin';
@@ -45,6 +45,9 @@ import ScreenLayout from './pages/ScreenLayout';
 import AdAnalytics from './pages/AdAnalytics';
 import RouletteConfig from './pages/RouletteConfig';
 import TrendingShorts from './pages/TrendingShorts';
+import BadgesPage from './pages/Badges';
+import LeaderboardPage from './pages/Leaderboard';
+import MarqueePage from './pages/Marquee';
 
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID;
 
@@ -84,6 +87,9 @@ const Sidebar = ({ onLogout }: { onLogout: () => void }) => {
         <NavLink to="/notifications" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}><Bell size={20} /> Notifications</NavLink>
         <NavLink to="/missions" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}><CheckSquare size={20} /> Mission Builder</NavLink>
         <NavLink to="/referrals" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}><Network size={20} /> Referral Tree</NavLink>
+        <NavLink to="/badges" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}><Award size={20} /> Badges</NavLink>
+        <NavLink to="/leaderboard" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}><Trophy size={20} /> Leaderboard</NavLink>
+        <NavLink to="/marquee" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}><Megaphone size={20} /> Social-Proof Feed</NavLink>
         
         <div className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2 mt-6 px-4">Content & News</div>
         <NavLink to="/news-dashboard" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}><Activity size={20} /> News Dashboard</NavLink>
@@ -218,6 +224,9 @@ const App = () => {
               <Route path="/notifications" element={<Notifications />} />
               <Route path="/missions" element={<Missions />} />
               <Route path="/referrals" element={<Referrals />} />
+              <Route path="/badges" element={<BadgesPage />} />
+              <Route path="/leaderboard" element={<LeaderboardPage />} />
+              <Route path="/marquee" element={<MarqueePage />} />
               <Route path="/fraud" element={<FraudLogs />} />
               <Route path="/security" element={<SecurityLogs />} />
               <Route path="/content" element={<ContentPage />} />

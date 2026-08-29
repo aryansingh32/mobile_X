@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { getAllUsers, adjustUserBalance, updateUserMetrics, bulkUpdateUsers, getWithdrawals, processWithdrawal, getFraudLogs, resolveFraud, getSystemLogs, getMe } from '../controllers/adminController';
+import { getAllUsers, adjustUserBalance, updateUserMetrics, bulkUpdateUsers, getWithdrawals, processWithdrawal, getFraudLogs, resolveFraud, getSystemLogs, getMe, getLeaderboardAdmin } from '../controllers/adminController';
 import { authenticate, authorizeAdmin, authorizeFinanceAdmin, authorizeFraudAnalyst, authorizeSuperAdmin } from '../middlewares/authMiddleware';
 import {
   getAllConfig, updateConfig,
@@ -162,5 +162,22 @@ router.post('/roulette', authorizeSuperAdmin, createRouletteItem);
 router.put('/roulette/:id', authorizeSuperAdmin, updateRouletteItem);
 router.delete('/roulette/:id', authorizeSuperAdmin, deleteRouletteItem);
 router.get('/roulette/analytics', authorizeSuperAdmin, getRouletteAnalytics);
+
+// Badges
+import {
+  getBadgesAdmin, createBadgeAdmin, updateBadgeAdmin, deleteBadgeAdmin, getBadgeAnalytics
+} from '../controllers/adminBadgesController';
+router.get('/badges', authorizeSuperAdmin, getBadgesAdmin);
+router.post('/badges', authorizeSuperAdmin, createBadgeAdmin);
+router.put('/badges/:id', authorizeSuperAdmin, updateBadgeAdmin);
+router.delete('/badges/:id', authorizeSuperAdmin, deleteBadgeAdmin);
+router.get('/badges/analytics', authorizeSuperAdmin, getBadgeAnalytics);
+
+// Leaderboard (read-only admin view)
+router.get('/leaderboard', authorizeFraudAnalyst, getLeaderboardAdmin);
+
+// Marquee (read-only admin view of the same real-activity feed users see)
+import { getMarquee } from '../controllers/marqueeController';
+router.get('/marquee', getMarquee);
 
 export default router;
