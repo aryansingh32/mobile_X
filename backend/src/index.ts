@@ -24,7 +24,9 @@ import referralRoutes from './routes/referral';
 import rewardsRoutes from './routes/rewards';
 import configRoutes from './routes/config';
 import telemetryRoutes from './routes/telemetry';
+import marqueeRoutes from './routes/marquee';
 import { startNewsIngestion } from './services/newsIngestionService';
+import { startScheduledJobs } from './services/schedulerService';
 
 import './services/queueService'; // Start BullMQ worker
 
@@ -96,6 +98,7 @@ app.use('/api/referral', referralRoutes);
 app.use('/api/rewards', rewardsRoutes);
 app.use('/api/config', configRoutes);
 app.use('/api/telemetry', telemetryRoutes);
+app.use('/api/marquee', marqueeRoutes);
 
 app.get('/api/health', (req, res) => {
   res.json({ status: 'OK', message: 'Rewarded Engagement API is running.' });
@@ -107,4 +110,5 @@ app.listen(Number(PORT), '0.0.0.0', () => {
   logger.info(`Server is running on port ${PORT}`);
   console.log(`Server is running on port ${PORT}`);
   startNewsIngestion();
+  startScheduledJobs();
 });

@@ -7,7 +7,12 @@ export const claimShortReward = async (videoId: string, watchSeconds: number, se
 
 export const claimAdReward = async (adType: string, adSessionId: string) => {
   const { data } = await apiClient.post('/api/rewards/ad', { adType, adSessionId });
-  return data as { message: string; coinsEarned: number };
+  return data as { message: string; coinsEarned: number; xpGained?: number; leveledUp?: boolean; newLevel?: number };
+};
+
+export const claimReadReward = async (articleId: string, readSeconds: number) => {
+  const { data } = await apiClient.post('/api/rewards/read', { articleId, readSeconds });
+  return data as { message: string; xpGained: number; leveledUp?: boolean; newLevel?: number };
 };
 
 export const getRouletteConfig = async () => {
@@ -17,5 +22,5 @@ export const getRouletteConfig = async () => {
 
 export const claimRouletteSpin = async (sessionId: string, deviceId?: string) => {
   const { data } = await apiClient.post('/api/rewards/roulette-spin', { sessionId, deviceId });
-  return data as { success: boolean; coinsEarned: number; sliceIndex: number; sliceName: string; chancesRemaining: number; xpGained: number };
+  return data as { success: boolean; coinsEarned: number; sliceIndex: number; sliceName: string; chancesRemaining: number; xpGained: number; leveledUp?: boolean; newLevel?: number };
 };

@@ -4,8 +4,8 @@ import { View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl, A
 import { useAppStore } from '../store/useAppStore';
 import { useConfigStore } from '../store/useConfigStore';
 import { Shimmer } from '../components/ui/Shimmer';
-import { getDailyMissions, getProfile, syncStreak } from '../api/user';
-import { Flame, Coins, PlaySquare, Newspaper, CheckSquare, Bell, Gamepad2, X } from 'lucide-react-native';
+import { getDailyMissions, getProfile, syncStreak, purchaseStreakFreeze } from '../api/user';
+import { Flame, Coins, PlaySquare, Newspaper, CheckSquare, Bell, Gamepad2, X, IndianRupee, Shield } from 'lucide-react-native';
 import { COLORS, RADIUS, SPACING, TYPOGRAPHY, MOTION } from '../constants/theme';
 import { LinearGradient } from 'expo-linear-gradient';
 import { FallingEmbers } from '../components/ui/FallingEmbers';
@@ -55,6 +55,24 @@ export interface HomeScreenHandle {
   handleBack: () => boolean;
 }
 
+// Mirrors backend/src/services/expService.ts LEVEL_REQUIREMENTS exactly —
+// the XP bar previously used `xp % 100`, which treats every level as
+// needing a flat 100 XP even though the real thresholds jump from 100 to
+// 900 XP apart, so the bar looped several times inside a single level and
+// stopped meaning anything past level 2.
+const LEVEL_REQUIREMENTS: Record<number, number> = {
+  1: 0, 2: 100, 3: 300, 4: 600, 5: 1000,
+  6: 1500, 7: 2100, 8: 2800, 9: 3600, 10: 4500,
+};
+const MAX_LEVEL = 10;
+
+const getLevelTier = (level: number) => {
+  if (level >= MAX_LEVEL) return { label: 'Platinum', color: '#B9E5FF' };
+  if (level >= 7) return { label: 'Gold', color: '#FFD700' };
+  if (level >= 4) return { label: 'Silver', color: '#D8D8D8' };
+  return { label: 'Bronze', color: '#E0A96D' };
+};
+
 export const HomeScreen = React.forwardRef<HomeScreenHandle, HomeScreenProps>(({
   onNavigate,
   onOpenGames,
@@ -74,13 +92,17 @@ export const HomeScreen = React.forwardRef<HomeScreenHandle, HomeScreenProps>(({
     xp,
     level,
     streak,
+    streakFreezes,
     dailyAdsWatched,
     dailyRewardsCap,
     streakClaimedToday,
+    coinToInrRate,
+    minWithdrawalCoins,
     setBalance,
     setXp,
     setLevel,
     setStreak,
+    setStreakFreezes,
     setDailyStats,
     setStreakClaimedToday,
     setDailyBonusAvailable,
@@ -90,7 +112,7 @@ export const HomeScreen = React.forwardRef<HomeScreenHandle, HomeScreenProps>(({
     games,
     setGames,
     trackEvent,
-  } = useAppStore(useShallow(s => ({ user: s.user, isAdPlaying: s.isAdPlaying, setAdPlaying: s.setAdPlaying, canWatchAd: s.canWatchAd, incrementAdCount: s.incrementAdCount, updateBalance: s.updateBalance, coinBalance: s.coinBalance, xp: s.xp, level: s.level, streak: s.streak, dailyAdsWatched: s.dailyAdsWatched, dailyRewardsCap: s.dailyRewardsCap, streakClaimedToday: s.streakClaimedToday, setBalance: s.setBalance, setXp: s.setXp, setLevel: s.setLevel, setStreak: s.setStreak, setDailyStats: s.setDailyStats, setStreakClaimedToday: s.setStreakClaimedToday, setDailyBonusAvailable: s.setDailyBonusAvailable, setConfigValues: s.setConfigValues, sponsoredCardClaimedDate: s.sponsoredCardClaimedDate, setSponsoredCardClaimedDate: s.setSponsoredCardClaimedDate, games: s.games, setGames: s.setGames, trackEvent: s.trackEvent })));
+  } = useAppStore(useShallow(s => ({ user: s.user, isAdPlaying: s.isAdPlaying, setAdPlaying: s.setAdPlaying, canWatchAd: s.canWatchAd, incrementAdCount: s.incrementAdCount, updateBalance: s.updateBalance, coinBalance: s.coinBalance, xp: s.xp, level: s.level, streak: s.streak, streakFreezes: s.streakFreezes, dailyAdsWatched: s.dailyAdsWatched, dailyRewardsCap: s.dailyRewardsCap, streakClaimedToday: s.streakClaimedToday, coinToInrRate: s.coinToInrRate, minWithdrawalCoins: s.minWithdrawalCoins, setBalance: s.setBalance, setXp: s.setXp, setLevel: s.setLevel, setStreak: s.setStreak, setStreakFreezes: s.setStreakFreezes, setDailyStats: s.setDailyStats, setStreakClaimedToday: s.setStreakClaimedToday, setDailyBonusAvailable: s.setDailyBonusAvailable, setConfigValues: s.setConfigValues, sponsoredCardClaimedDate: s.sponsoredCardClaimedDate, setSponsoredCardClaimedDate: s.setSponsoredCardClaimedDate, games: s.games, setGames: s.setGames, trackEvent: s.trackEvent })));
 
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -113,6 +135,23 @@ export const HomeScreen = React.forwardRef<HomeScreenHandle, HomeScreenProps>(({
   const [isSponsoredCardShattered, setIsSponsoredCardShattered] = useState(false);
   const [rouletteConfigLoading, setRouletteConfigLoading] = useState(false);
   const [deviceId, setDeviceId] = useState<string | null>(null);
+  const [freezePurchasing, setFreezePurchasing] = useState(false);
+  // Only diffed against on the SECOND+ load in this component's lifetime —
+  // the first load just establishes the baseline, so restoring a persisted
+  // (already-current) level on mount never fires a false "level up" toast.
+  const previousLevelRef = useRef<number | null>(null);
+
+  const levelTier = useMemo(() => getLevelTier(level || 1), [level]);
+  const xpProgress = useMemo(() => {
+    if (level >= MAX_LEVEL) return 1;
+    const currentReq = LEVEL_REQUIREMENTS[level] ?? 0;
+    const nextReq = LEVEL_REQUIREMENTS[level + 1] ?? currentReq + 1;
+    return Math.max(0, Math.min(1, (xp - currentReq) / Math.max(1, nextReq - currentReq)));
+  }, [xp, level]);
+  const walletGoalProgress = useMemo(
+    () => Math.min(1, coinBalance / Math.max(1, minWithdrawalCoins)),
+    [coinBalance, minWithdrawalCoins]
+  );
 
   // Sponsored card is claimed today if date matches
   const todayStr = new Date().toISOString().split('T')[0];
@@ -375,8 +414,26 @@ export const HomeScreen = React.forwardRef<HomeScreenHandle, HomeScreenProps>(({
   ) => {
     setBalance(profile?.coins ?? 0);
     setXp(profile?.xp ?? 0);
-    setLevel(profile?.level ?? 1);
+    const newLevel = profile?.level ?? 1;
+    // Give a level-up a body — the backend already computes this on every
+    // XP gain, it just never reached the client as anything more than a
+    // number in `profile.level`. Only fires from the second load onward
+    // (see previousLevelRef) so restoring a persisted level on mount never
+    // triggers a false celebration.
+    if (previousLevelRef.current !== null && newLevel > previousLevelRef.current) {
+      const tier = getLevelTier(newLevel);
+      showToast(
+        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+          <Text style={{ color: '#fff', fontSize: 14, fontWeight: '700' }}>🎉 Level Up! Now Level {newLevel} · </Text>
+          <Text style={{ color: tier.color, fontSize: 14, fontWeight: '800' }}>{tier.label}</Text>
+        </View>,
+        'success'
+      );
+    }
+    previousLevelRef.current = newLevel;
+    setLevel(newLevel);
     setStreak(profile?.streak ?? 0);
+    setStreakFreezes(profile?.streakFreezes ?? 0);
     setDailyStats({
       remaining: profile?.dailyAdRemaining ?? 20,
       cap: profile?.dailyAdCap ?? 20,
@@ -570,8 +627,8 @@ export const HomeScreen = React.forwardRef<HomeScreenHandle, HomeScreenProps>(({
           </TouchableOpacity>
           <View>
             <Text style={styles.userName}>{user?.name || 'User'}</Text>
-            <View style={styles.levelBadge}>
-              <Text style={styles.levelText}>Lv.{level || 1}</Text>
+            <View style={[styles.levelBadge, { backgroundColor: `${levelTier.color}33` }]}>
+              <Text style={[styles.levelText, { color: levelTier.color }]}>Lv.{level || 1} · {levelTier.label}</Text>
             </View>
           </View>
         </View>
@@ -593,7 +650,7 @@ export const HomeScreen = React.forwardRef<HomeScreenHandle, HomeScreenProps>(({
             <Text style={styles.streakText}>{streak || 0}</Text>
           </View>
           <View style={styles.xpBarContainer}>
-            <View style={[styles.xpBarFill, { width: `${xp % 100}%` }]} />
+            <View style={[styles.xpBarFill, { width: `${xpProgress * 100}%` }]} />
           </View>
         </View>
       </View>
@@ -610,6 +667,26 @@ export const HomeScreen = React.forwardRef<HomeScreenHandle, HomeScreenProps>(({
             <Text style={styles.errorText}>{error} Tap to retry.</Text>
           </TouchableOpacity>
         ) : null}
+
+        {/* Wallet-at-a-glance — the coin→₹ value and "how close to cashing
+            out" goal-gradient bar previously only existed on Wallet, seen
+            only after a user had already stopped earning for the session.
+            Same pattern, moved to the screen every session actually opens on. */}
+        <TouchableOpacity style={styles.walletGlanceCard} onPress={() => onNavigate('wallet')} activeOpacity={0.85}>
+          <View style={styles.walletGlanceRow}>
+            <Text style={styles.walletGlanceLabel}>Redeemable value</Text>
+            <View style={styles.walletGlanceInrPill}>
+              <IndianRupee size={12} color="#FFD700" />
+              <Text style={styles.walletGlanceInrText}>₹{(coinBalance * coinToInrRate).toFixed(2)}</Text>
+            </View>
+          </View>
+          <AnimatedProgressBar progress={walletGoalProgress} height={6} showPercentage />
+          <Text style={styles.walletGlanceHint}>
+            {coinBalance >= minWithdrawalCoins
+              ? "You're ready to cash out — head to Wallet!"
+              : `${Math.max(0, minWithdrawalCoins - coinBalance)} coins to your next redemption`}
+          </Text>
+        </TouchableOpacity>
 
         {/* Daily Missions Card */}
         <DailyMissionsCard
@@ -629,7 +706,37 @@ export const HomeScreen = React.forwardRef<HomeScreenHandle, HomeScreenProps>(({
             <Flame color="#FF4D1A" size={28} />
             <View style={styles.streakTextContainer}>
               <Text style={styles.streakWidgetValue}>{streak || 0} Day Streak</Text>
-              <Text style={styles.streakWidgetHint}>Keep it up to earn a mystery box!</Text>
+              <Text style={styles.streakWidgetHint}>Keep it up — bonus coins at day 7, 30 & 100!</Text>
+              {streakFreezes > 0 ? (
+                <View style={styles.freezeBadge}>
+                  <Shield color="#5FA8FF" size={11} />
+                  <Text style={styles.freezeBadgeText}>{streakFreezes} freeze{streakFreezes > 1 ? 's' : ''} ready</Text>
+                </View>
+              ) : (
+                <TouchableOpacity
+                  style={styles.freezeBuyBtn}
+                  disabled={freezePurchasing}
+                  onPress={async () => {
+                    if (freezePurchasing) return;
+                    setFreezePurchasing(true);
+                    try {
+                      const result = await purchaseStreakFreeze();
+                      setStreakFreezes(result.streakFreezes);
+                      updateBalance(-result.coinsCost);
+                      showToast(`🛡️ Streak freeze purchased for ${result.coinsCost} coins!`, 'success');
+                    } catch (err: any) {
+                      showToast(err?.response?.data?.error || 'Could not buy a streak freeze.', 'error');
+                    } finally {
+                      setFreezePurchasing(false);
+                    }
+                  }}
+                  accessibilityRole="button"
+                  accessibilityLabel="Buy a streak freeze"
+                >
+                  <Shield color="#5FA8FF" size={11} />
+                  <Text style={styles.freezeBadgeText}>{freezePurchasing ? 'Buying…' : 'Buy freeze · 50 coins'}</Text>
+                </TouchableOpacity>
+              )}
             </View>
             <TouchableOpacity
               style={styles.claimStreakBtn}
@@ -966,6 +1073,45 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingTop: 16,
   },
+  walletGlanceCard: {
+    backgroundColor: '#1A1A1A',
+    borderRadius: 16,
+    padding: 14,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255,215,0,0.15)',
+  },
+  walletGlanceRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  walletGlanceLabel: {
+    color: 'rgba(255,255,255,0.55)',
+    fontSize: 12,
+  },
+  walletGlanceInrPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: 'rgba(255,215,0,0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,215,0,0.2)',
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  walletGlanceInrText: {
+    color: '#FFD700',
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  walletGlanceHint: {
+    color: 'rgba(255,255,255,0.45)',
+    fontSize: 11,
+    marginTop: 8,
+  },
   // Streak Widget
   streakWidget: {
     flexDirection: 'row',
@@ -990,6 +1136,23 @@ const styles = StyleSheet.create({
     color: '#A296BA',
     fontSize: 12,
     marginTop: 2,
+  },
+  freezeBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 6,
+    gap: 4,
+  },
+  freezeBuyBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 6,
+    gap: 4,
+  },
+  freezeBadgeText: {
+    color: '#5FA8FF',
+    fontSize: 11,
+    fontWeight: '700',
   },
   claimStreakBtn: {
     backgroundColor: '#FF4D1A',

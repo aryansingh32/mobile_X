@@ -101,7 +101,10 @@ export const getProfile = async (req: any, res: Response) => {
       }),
     ]);
 
-    const rouletteChancesRemaining = Math.max(0, rouletteDailyChances + rouletteAdsWatchedToday - rouletteSpinsToday);
+    // Level-tied perk (kept identical to claimRouletteSpin's calc): every 5
+    // levels grants one extra free daily spin.
+    const levelBonusChances = Math.floor(user.level / 5);
+    const rouletteChancesRemaining = Math.max(0, rouletteDailyChances + levelBonusChances + rouletteAdsWatchedToday - rouletteSpinsToday);
 
     res.json({
       data: {
@@ -355,6 +358,135 @@ export const deleteAccount = async (req: any, res: Response): Promise<void> => {
       }),
     ]);
     res.json({ message: 'Account deleted and personal data removed' });
+  } catch (error: any) {
+    sendServerError(res, error);
+  }
+};
+
+// Badges/UserBadges were already modeled and already queried in getProfile
+// above (via `include: { userBadges: ... }`), but there was never a catalog
+// endpoint for the client to show which badges exist and which are still
+// locked — AchievementScreen rendered hardcoded mock data instead. Pairs
+// with services/badgeService.ts (the write path) and scripts/seedBadges.ts
+// (the catalog).
+export const getBadges = async (req: any, res: Response): Promise<void> => {
+  try {
+    const [allBadges, earned] = await Promise.all([
+      prisma.badges.findMany({ orderBy: { conditionValue: 'asc' } }),
+      prisma.userBadges.findMany({ where: { userId: req.user.id } }),
+    ]);
+    const earnedMap = new Map(earned.map((e) => [e.badgeId, e.earnedAt]));
+    const data = allBadges.map((b) => ({
+      ...b,
+      earned: earnedMap.has(b.id),
+      earnedAt: earnedMap.get(b.id) ?? null,
+    }));
+    res.json({ data });
+  } catch (error: any) {
+    sendServerError(res, error);
+  }
+};
+
+// Spends coins for one streak-freeze token — the loss-aversion "shield"
+// mechanic every direct competitor in this category runs (Duolingo being
+// the best-known version). Consumed automatically by updateStreak() the
+// next time a day is missed; see services/expService.ts.
+export const purchaseStreakFreeze = async (req: any, res: Response): Promise<void> => {
+  try {
+    const userId = req.user.id;
+    const cost = await getConfigInt('streak_freeze_cost_coins', 50);
+    const maxFreezes = await getConfigInt('streak_freeze_max', 3);
+
+    const user = await prisma.user.findUnique({ where: { id: userId }, select: { streakFreezes: true } });
+    if (!user) {
+      res.status(404).json({ error: 'User not found' });
+      return;
+    }
+    if (user.streakFreezes >= maxFreezes) {
+      res.status(400).json({ error: `You already have the maximum of ${maxFreezes} streak freezes` });
+      return;
+    }
+
+    const clientIp = requestIp.getClientIp(req) || 'unknown';
+    try {
+      await addLedgerEntry(userId, -cost, 'STREAK_FREEZE_PURCHASE', clientIp, `streak-freeze-${userId}-${Date.now()}`);
+    } catch (e: any) {
+      res.status(400).json({ error: e.message === 'Insufficient coin balance' ? 'Not enough coins' : 'Purchase failed' });
+      return;
+    }
+
+    const updated = await prisma.user.update({
+      where: { id: userId },
+      data: { streakFreezes: { increment: 1 } },
+      select: { streakFreezes: true },
+    });
+    res.json({ streakFreezes: updated.streakFreezes, coinsCost: cost });
+  } catch (error: any) {
+    sendServerError(res, error);
+  }
+};
+
+// Real leaderboard — LeaderboardScreen previously rendered MOCK_LEADERS with
+// "You" hardcoded at rank #2. Ranks by lifetime coins earned for "all time"
+// (the field the profile already tracks, so no full-ledger scan needed) and
+// by coins earned within the window for week/month.
+export const getLeaderboard = async (req: any, res: Response): Promise<void> => {
+  try {
+    const period = req.query.period === 'week' || req.query.period === 'month' ? req.query.period : 'all';
+    const userId = req.user.id;
+
+    if (period === 'all') {
+      const [top, me] = await Promise.all([
+        prisma.user.findMany({
+          where: { banned: false, shadowBanned: false },
+          orderBy: { totalCoinsEarned: 'desc' },
+          take: 50,
+          select: { id: true, name: true, totalCoinsEarned: true, level: true },
+        }),
+        prisma.user.findUnique({ where: { id: userId }, select: { totalCoinsEarned: true, name: true, level: true } }),
+      ]);
+
+      const leaders = top.map((u, i) => ({ rank: i + 1, name: u.name, coins: u.totalCoinsEarned, level: u.level, isYou: u.id === userId }));
+      let you = leaders.find((l) => l.isYou) ?? null;
+      if (!you && me) {
+        const higherCount = await prisma.user.count({
+          where: { banned: false, shadowBanned: false, totalCoinsEarned: { gt: me.totalCoinsEarned } },
+        });
+        you = { rank: higherCount + 1, name: me.name, coins: me.totalCoinsEarned, level: me.level, isYou: true };
+      }
+
+      res.json({ data: { period, leaders, you } });
+      return;
+    }
+
+    const since = new Date();
+    if (period === 'week') since.setDate(since.getDate() - 7);
+    else since.setMonth(since.getMonth() - 1);
+
+    const grouped = await prisma.coinLedger.groupBy({
+      by: ['userId'],
+      where: { amount: { gt: 0 }, timestamp: { gte: since }, NOT: { source: { startsWith: 'SHADOW_' } } },
+      _sum: { amount: true },
+      orderBy: { _sum: { amount: 'desc' } },
+      take: 50,
+    });
+
+    const userIds = grouped.map((g) => g.userId);
+    const users = await prisma.user.findMany({
+      where: { id: { in: userIds }, banned: false, shadowBanned: false },
+      select: { id: true, name: true, level: true },
+    });
+    const userMap = new Map(users.map((u) => [u.id, u]));
+
+    const leaders = grouped
+      .filter((g) => userMap.has(g.userId))
+      .map((g, i) => {
+        const u = userMap.get(g.userId)!;
+        return { rank: i + 1, name: u.name, coins: g._sum.amount || 0, level: u.level, isYou: u.id === userId };
+      });
+
+    const you = leaders.find((l) => l.isYou) ?? null;
+    res.json({ data: { period, leaders, you } });
   } catch (error: any) {
     sendServerError(res, error);
   }

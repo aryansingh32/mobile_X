@@ -3,6 +3,7 @@ import prisma from '../config/db';
 import { AuthRequest } from '../middlewares/authMiddleware';
 import { v4 as uuidv4 } from 'uuid';
 import { sendServerError } from '../utils/errorResponse';
+import { checkAndAwardBadges } from '../services/badgeService';
 
 function generateReferralCode(): string {
   return 'RF' + uuidv4().replace(/-/g, '').substring(0, 8).toUpperCase();
@@ -127,6 +128,9 @@ export const applyReferral = async (req: AuthRequest, res: Response): Promise<vo
       }
       throw error;
     }
+
+    const totalReferrals = await prisma.referral.count({ where: { referrerId: referrer.id } });
+    checkAndAwardBadges(referrer.id, 'REFERRALS', totalReferrals).catch(() => undefined);
 
     res.json({ message: 'Referral code applied successfully' });
   } catch (error: any) {

@@ -1,13 +1,11 @@
-import { useShallow } from 'zustand/react/shallow';
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Animated, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Trophy } from 'lucide-react-native';
-import { useAppStore } from '../store/useAppStore';
 import { COLORS, MOTION, RADIUS, SPACING, TYPOGRAPHY } from '../constants/theme';
 import ScreenHeader from '../components/ui/ScreenHeader';
 import { Shimmer } from '../components/ui/Shimmer';
 import { VIBIcon } from '../components/ui/VIBIcon';
+import { getLeaderboard } from '../api/user';
 
 // Filter chip that scales down on press (see AppButton for the reference pattern).
 const FilterChip: React.FC<{ style?: any; onPress: () => void; children: React.ReactNode }> = ({ style, onPress, children }) => {
@@ -24,20 +22,7 @@ const FilterChip: React.FC<{ style?: any; onPress: () => void; children: React.R
 };
 
 type Period = 'week' | 'month' | 'all';
-
-/**
- * UI SHELL — mock ranking data below. Real ranking requires a backend query
- * (likely rank-by-coinBalance or rank-by-xp, per user.coinBalance/xp already
- * tracked in useAppStore) — see the report before wiring this up for real.
- */
-const MOCK_LEADERS = [
-  { rank: 1, name: 'Aman', coins: 24500 },
-  { rank: 2, name: 'You', coins: 15230, isYou: true },
-  { rank: 3, name: 'Neha', coins: 11200 },
-  { rank: 4, name: 'Rohit', coins: 9850 },
-  { rank: 5, name: 'Priya', coins: 8950 },
-  { rank: 6, name: 'Sagar', coins: 7650 },
-];
+type Leader = { rank: number; name: string; coins: number; level: number; isYou: boolean };
 
 const PERIODS: { key: Period; label: string }[] = [
   { key: 'week', label: 'This Week' },
@@ -48,15 +33,26 @@ const PERIODS: { key: Period; label: string }[] = [
 export const LeaderboardScreen = ({ onBack }: { onBack: () => void }) => {
   const [period, setPeriod] = useState<Period>('week');
   const [loading, setLoading] = useState(true);
-  const { user } = useAppStore(useShallow(s => ({ user: s.user })));
-  const you = useMemo(() => MOCK_LEADERS.find((l) => l.isYou), []);
+  const [error, setError] = useState('');
+  const [leaders, setLeaders] = useState<Leader[]>([]);
+  const [you, setYou] = useState<Leader | null>(null);
 
-  React.useEffect(() => {
+  useEffect(() => {
     let mounted = true;
     setLoading(true);
-    setTimeout(() => {
-      if (mounted) setLoading(false);
-    }, 600);
+    setError('');
+    getLeaderboard(period)
+      .then((res) => {
+        if (!mounted) return;
+        setLeaders(res.leaders || []);
+        setYou(res.you || null);
+      })
+      .catch(() => {
+        if (mounted) setError('Could not load the leaderboard.');
+      })
+      .finally(() => {
+        if (mounted) setLoading(false);
+      });
     return () => { mounted = false; };
   }, [period]);
 
@@ -82,16 +78,23 @@ export const LeaderboardScreen = ({ onBack }: { onBack: () => void }) => {
               <Shimmer key={i} width="100%" height={70} borderRadius={12} style={{ marginBottom: 8 }} />
             ))}
           </View>
+        ) : error ? (
+          <Text style={styles.emptyText} onPress={() => setPeriod((p) => p)}>{error}</Text>
+        ) : leaders.length === 0 ? (
+          <Text style={styles.emptyText}>No earners in this period yet — be the first!</Text>
         ) : (
-          MOCK_LEADERS.map((leader) => (
+          leaders.map((leader) => (
             <View key={leader.rank} style={[styles.row, leader.isYou && styles.rowYou]}>
               <View style={[styles.rankBadge, leader.rank <= 3 && styles.rankBadgeTop]}>
                 <Text style={[styles.rankText, leader.rank <= 3 && styles.rankTextTop]}>{leader.rank}</Text>
               </View>
               <View style={styles.avatar}>
-                <Text style={styles.avatarInitial}>{leader.name[0]}</Text>
+                <Text style={styles.avatarInitial}>{leader.name?.[0] || '?'}</Text>
               </View>
-              <Text style={styles.name}>{leader.name}</Text>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.name}>{leader.isYou ? 'You' : leader.name}</Text>
+                <Text style={styles.levelSub}>Lv. {leader.level}</Text>
+              </View>
               <View style={styles.coinsWrap}>
                 <Text style={styles.coins}>{leader.coins.toLocaleString()}</Text>
               </View>
@@ -101,7 +104,7 @@ export const LeaderboardScreen = ({ onBack }: { onBack: () => void }) => {
         <View style={{ height: 90 }} />
       </ScrollView>
 
-      {you ? (
+      {you && !leaders.some((l) => l.isYou) ? (
         <LinearGradient colors={['rgba(255,215,0,0.15)', 'rgba(255,165,0,0.05)']} style={styles.stickyFooter}>
           <View style={{flexDirection: 'row', alignItems: 'center'}}>
             <Text style={styles.stickyText}>Your Rank: {you.rank}, {you.coins.toLocaleString()} </Text>
@@ -121,6 +124,7 @@ const styles = StyleSheet.create({
   filterText: { ...TYPOGRAPHY.caption, color: COLORS.white_80, fontWeight: '700' },
   filterTextActive: { color: '#111111' },
   content: { paddingHorizontal: SPACING.lg },
+  emptyText: { ...TYPOGRAPHY.caption, color: COLORS.white_55, textAlign: 'center', marginTop: SPACING.xl },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -154,7 +158,8 @@ const styles = StyleSheet.create({
     marginRight: SPACING.md,
   },
   avatarInitial: { color: COLORS.white, fontWeight: '800' },
-  name: { ...TYPOGRAPHY.h3, color: COLORS.white, flex: 1 },
+  name: { ...TYPOGRAPHY.h3, color: COLORS.white },
+  levelSub: { ...TYPOGRAPHY.caption, color: COLORS.white_55, marginTop: 2 },
   coinsWrap: { flexDirection: 'row', alignItems: 'center' },
   coins: { ...TYPOGRAPHY.h3, color: COLORS.yellow, fontWeight: '800' },
   stickyFooter: {

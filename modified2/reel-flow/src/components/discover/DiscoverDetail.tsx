@@ -14,6 +14,8 @@ import { useAdPlacement } from '../../hooks/useAdPlacement';
 import { useAdUnitId } from '../../hooks/useAdUnitId';
 import { NativeAdCard } from '../ads/NativeAdCard';
 import { MOTION } from '../../constants/theme';
+import { claimReadReward } from '../../api/rewards';
+import { useToast } from '../ui/Toast';
 
 interface Props {
   data: DiscoverCardData | null;
@@ -44,6 +46,14 @@ export const DiscoverDetail: React.FC<Props> = ({ data, layout, onClose }) => {
   const nativeAdUnitId = useAdUnitId('NATIVE', TestIds.NATIVE);
   const [isVisible, setIsVisible] = useState(false);
   const [heroImageLoaded, setHeroImageLoaded] = useState(false);
+  const { showToast } = useToast();
+  // Discover's ad cards were the only way to earn anything here — reading an
+  // article itself paid nothing despite the UI implying the feed was a
+  // second earning surface. This awards a small XP-only reward for a
+  // genuine read (dwell-time gated, capped, and deduped server-side — see
+  // claimReadReward in rewardsController.ts).
+  const readStartRef = useRef<number | null>(null);
+  const readClaimedIdsRef = useRef<Set<string>>(new Set());
 
   const animatedValue = useRef(new Animated.Value(0)).current;
   const closePress = usePressScale();
@@ -73,6 +83,26 @@ export const DiscoverDetail: React.FC<Props> = ({ data, layout, onClose }) => {
       });
     }
   }, [data, layout]);
+
+  useEffect(() => {
+    if (!data?.id) return;
+    readStartRef.current = Date.now();
+    const articleId = data.id;
+    return () => {
+      const startedAt = readStartRef.current;
+      readStartRef.current = null;
+      if (!startedAt || readClaimedIdsRef.current.has(articleId)) return;
+      const elapsedSeconds = Math.floor((Date.now() - startedAt) / 1000);
+      if (elapsedSeconds < 1) return;
+      readClaimedIdsRef.current.add(articleId);
+      claimReadReward(articleId, elapsedSeconds)
+        .then((res) => {
+          if (res.xpGained > 0) showToast(`+${res.xpGained} XP for reading`, 'success');
+        })
+        .catch(() => {});
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data?.id]);
 
   if (!isVisible || !data || !layout) return null;
 

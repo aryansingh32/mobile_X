@@ -453,15 +453,19 @@ export const claimAdReward = async (req: AuthRequest, res: Response): Promise<vo
 
     const xpRatio = Math.max(1, await getConfigInt('xp_per_coin_ratio', 2));
     const xpGained = Math.floor(coinsEarned / xpRatio);
+    let leveledUp = false;
+    let newLevel: number | undefined;
     if (xpGained > 0) {
-      await addExp(userId, xpGained);
+      const expResult = await addExp(userId, xpGained);
+      leveledUp = expResult.leveledUp;
+      newLevel = expResult.newLevel;
     }
     await prisma.user.update({
       where: { id: userId },
       data: { totalCoinsEarned: { increment: coinsEarned } },
     }).catch(() => undefined);
 
-    res.json({ message: 'Ad reward claimed', coinsEarned, xpGained });
+    res.json({ message: 'Ad reward claimed', coinsEarned, xpGained, leveledUp, newLevel });
   } catch (error: any) {
     sendServerError(res, error);
   }
@@ -499,7 +503,7 @@ export const claimRouletteSpin = async (req: AuthRequest, res: Response): Promis
     todayStart.setHours(0, 0, 0, 0);
 
     // Get limits and chances
-    const [rouletteDailyChances, rouletteAdsWatchedToday, rouletteSpinsToday, activeSlices] = await Promise.all([
+    const [rouletteDailyChances, rouletteAdsWatchedToday, rouletteSpinsToday, activeSlices, spinningUser] = await Promise.all([
       getConfigInt('roulette_daily_chances', 2),
       prisma.coinLedger.count({
         where: {
@@ -519,10 +523,15 @@ export const claimRouletteSpin = async (req: AuthRequest, res: Response): Promis
       prisma.rouletteItem.findMany({
         where: { isActive: true },
         orderBy: { sortOrder: 'asc' }
-      })
+      }),
+      prisma.user.findUnique({ where: { id: userId }, select: { level: true } }),
     ]);
 
-    const chancesRemaining = rouletteDailyChances + rouletteAdsWatchedToday - rouletteSpinsToday;
+    // A level-tied perk that doesn't touch monetary value — every 5 levels
+    // grants one extra free daily spin, so leveling up actually changes
+    // something instead of being a cosmetic number.
+    const levelBonusChances = Math.floor((spinningUser?.level ?? 1) / 5);
+    const chancesRemaining = rouletteDailyChances + levelBonusChances + rouletteAdsWatchedToday - rouletteSpinsToday;
     if (chancesRemaining <= 0) {
       res.status(429).json({ error: 'No spin chances remaining today' });
       return;
@@ -582,8 +591,12 @@ export const claimRouletteSpin = async (req: AuthRequest, res: Response): Promis
 
     // The slice's configured "prize value" becomes XP 1:1 — no coin/cash path.
     const xpGained = Math.max(0, Math.floor(prizeValue));
+    let leveledUp = false;
+    let newLevel: number | undefined;
     if (xpGained > 0) {
-      await addExp(userId, xpGained);
+      const expResult = await addExp(userId, xpGained);
+      leveledUp = expResult.leveledUp;
+      newLevel = expResult.newLevel;
     }
 
     res.json({
@@ -593,6 +606,83 @@ export const claimRouletteSpin = async (req: AuthRequest, res: Response): Promis
       sliceIndex,
       sliceName: selectedSlice.label,
       chancesRemaining: chancesRemaining - 1,
+      leveledUp,
+      newLevel,
+    });
+  } catch (error: any) {
+    sendServerError(res, error);
+  }
+};
+
+// Discover's "read reward" was promised in the UI (coin-earning cards mixed
+// into the news feed) but reading an article itself paid nothing — only the
+// separate ad cards did. This closes that gap with a small, XP-only reward
+// (no coins) for a genuine read, gated on dwell time and capped per day —
+// XP-only keeps this outside the AdMob rewarded-ad reward-disclosure rules
+// entirely, since it isn't an ad reward at all.
+export const claimReadReward = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const userId = req.user.id;
+    const { articleId, readSeconds } = req.body;
+
+    if (!articleId || readSeconds == null) {
+      res.status(400).json({ error: 'articleId and readSeconds are required' });
+      return;
+    }
+    const parsedSeconds = Number(readSeconds);
+    if (!Number.isFinite(parsedSeconds) || parsedSeconds <= 0 || parsedSeconds > 600) {
+      res.status(400).json({ error: 'readSeconds must be between 1 and 600' });
+      return;
+    }
+
+    const minReadSeconds = await getConfigInt('read_reward_min_seconds', 15);
+    if (parsedSeconds < minReadSeconds) {
+      res.json({ message: `Minimum ${minReadSeconds}s read time required`, xpGained: 0 });
+      return;
+    }
+
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+
+    const dailyCap = await getConfigInt('read_reward_daily_cap', 20);
+    const readsToday = await prisma.userActivityEvent.count({
+      where: { userId, eventType: 'READ_REWARD_CLAIMED', createdAt: { gte: todayStart } },
+    });
+    if (readsToday >= dailyCap) {
+      res.json({ message: 'Daily read-reward limit reached', xpGained: 0 });
+      return;
+    }
+
+    const articleKey = String(articleId);
+    const alreadyClaimed = await prisma.userActivityEvent.findFirst({
+      where: {
+        userId,
+        eventType: 'READ_REWARD_CLAIMED',
+        createdAt: { gte: todayStart },
+        metadata: { path: ['articleId'], equals: articleKey },
+      },
+      select: { id: true },
+    });
+    if (alreadyClaimed) {
+      res.json({ message: 'Already rewarded for this article today', xpGained: 0 });
+      return;
+    }
+
+    const xpAmount = await getConfigInt('read_reward_xp', 5);
+    await prisma.userActivityEvent.create({
+      data: {
+        userId,
+        eventType: 'READ_REWARD_CLAIMED',
+        metadata: { articleId: articleKey, readSeconds: parsedSeconds },
+      },
+    });
+
+    const expResult = await addExp(userId, xpAmount);
+    res.json({
+      message: 'Read reward claimed',
+      xpGained: xpAmount,
+      leveledUp: expResult.leveledUp,
+      newLevel: expResult.newLevel,
     });
   } catch (error: any) {
     sendServerError(res, error);

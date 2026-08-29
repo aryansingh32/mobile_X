@@ -1,7 +1,7 @@
 import { Request, Response } from 'express';
 import jwt from 'jsonwebtoken';
 import prisma from '../config/db';
-import { getBalance } from '../services/ledgerService';
+import { addLedgerEntry, getBalance } from '../services/ledgerService';
 import admin from '../config/firebase';
 import { OAuth2Client } from 'google-auth-library';
 import { v4 as uuidv4 } from 'uuid';
@@ -9,6 +9,12 @@ import { getRequiredSecret } from '../config/secrets';
 import { updateStreak } from '../services/expService';
 
 const googleClient = new OAuth2Client();
+
+const getConfigInt = async (key: string, fallback: number): Promise<number> => {
+  const config = await prisma.appConfig.findUnique({ where: { key } });
+  const parsed = config ? Number.parseInt(config.value, 10) : NaN;
+  return Number.isFinite(parsed) ? parsed : fallback;
+};
 
 function generateReferralCode(): string {
   return 'RF' + uuidv4().replace(/-/g, '').substring(0, 8).toUpperCase();
@@ -59,7 +65,8 @@ export const googleLogin = async (req: Request, res: Response): Promise<void> =>
     }
 
     let user = await prisma.user.findUnique({ where: { email } });
-    
+    const isNewUser = !user;
+
     if (!user) {
       user = await prisma.user.create({
         data: {
@@ -69,6 +76,20 @@ export const googleLogin = async (req: Request, res: Response): Promise<void> =>
           referralCode: generateReferralCode(),
         }
       });
+
+      // Every direct competitor in this category (Roz Dhan, TaskBucks,
+      // CashBuddy) credits a small bonus the moment an account is created —
+      // the classic reciprocity trigger. ReelFlow had none: the onboarding
+      // gift-box animation opened onto a literal zero balance.
+      const signupBonus = await getConfigInt('signup_bonus_coins', 50);
+      if (signupBonus > 0) {
+        try {
+          await addLedgerEntry(user.id, signupBonus, 'SIGNUP_BONUS', 'system', `signup-${user.id}`);
+          await prisma.user.update({ where: { id: user.id }, data: { totalCoinsEarned: { increment: signupBonus } } });
+        } catch {
+          // Non-fatal — a missed signup bonus shouldn't block account creation.
+        }
+      }
     } else if (!user.googleId) {
       user = await prisma.user.update({
         where: { id: user.id },
@@ -96,6 +117,7 @@ export const googleLogin = async (req: Request, res: Response): Promise<void> =>
         role: user.role,
         referralCode: user.referralCode
       },
+      isNewUser,
       streakReset: streakResult.broken
     });
   } catch (error: any) {

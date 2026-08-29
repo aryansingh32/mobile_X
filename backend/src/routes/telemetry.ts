@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { authenticate } from '../middlewares/authMiddleware';
 import prisma from '../config/db';
 import logger from '../utils/logger';
+import { checkAndAwardBadges } from '../services/badgeService';
 
 const router = Router();
 
@@ -19,7 +20,10 @@ async function processTelemetryEvent(userId: number, eventType: string, count: n
   // lifetimeReferrals not in Prisma schema — skip
 
   if (Object.keys(userUpdate).length > 0) {
-    await prisma.user.update({ where: { id: userId }, data: userUpdate });
+    const updatedUser = await prisma.user.update({ where: { id: userId }, data: userUpdate });
+    if (eventType === 'SHORTS_WATCHED') {
+      checkAndAwardBadges(userId, 'SHORTS_WATCHED', updatedUser.lifetimeShortsWatched).catch(() => undefined);
+    }
   }
 
   // 2. Find and update active missions with this metricType

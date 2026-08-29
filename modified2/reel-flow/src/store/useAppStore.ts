@@ -31,6 +31,7 @@ export interface AppState {
   xp: number;
   level: number;
   streak: number;
+  streakFreezes: number;
   lastStreakDate: string | null;
 
   // Daily limits (anti-fraud)
@@ -83,6 +84,7 @@ export interface AppState {
   setXp: (xp: number) => void;
   setLevel: (level: number) => void;
   setStreak: (streak: number) => void;
+  setStreakFreezes: (freezes: number) => void;
   setHydrated: (h: boolean) => void;
   setOffline: (offline: boolean) => void;
   setDailyStats: (stats: { remaining: number; cap: number; todayEarned: number }) => void;
@@ -116,6 +118,7 @@ export const useAppStore = create<AppState>()(
       xp: 0,
       level: 1,
       streak: 0,
+      streakFreezes: 0,
       lastStreakDate: null,
 
       // Daily limits
@@ -215,6 +218,7 @@ export const useAppStore = create<AppState>()(
       setXp: (xp) => set({ xp }),
       setLevel: (level) => set({ level }),
       setStreak: (streak) => set({ streak }),
+      setStreakFreezes: (freezes) => set({ streakFreezes: freezes }),
       setHydrated: (h) => set({ hydrated: h }),
 
       setOffline: (offline) =>
@@ -295,6 +299,7 @@ export const useAppStore = create<AppState>()(
         xp: state.xp,
         level: state.level,
         streak: state.streak,
+        streakFreezes: state.streakFreezes,
         hapticsEnabled: state.hapticsEnabled,
         hasSeenTabTooltip: state.hasSeenTabTooltip,
         rewardedAdsWatchedToday: state.rewardedAdsWatchedToday,

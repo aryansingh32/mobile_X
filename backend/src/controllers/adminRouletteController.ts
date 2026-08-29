@@ -4,8 +4,24 @@ import { sendServerError } from '../utils/errorResponse';
 
 const logAdminAction = async (req: Request, action: string, details: string) => {
   await prisma.auditLog.create({
-    data: { action, details, adminId: (req as any).user?.id ?? null } 
+    data: { action, details, adminId: (req as any).user?.id ?? null }
   });
+};
+
+// The roulette wheel deliberately pays XP only, never coins (see the
+// compliance note in claimRouletteSpin — crediting real/withdrawable coins
+// for a chance-based outcome is what Google Play's real-money-gambling
+// policy targets). Slice labels were free text with nothing stopping an
+// admin from writing "500 Coins" on a slice that only ever pays XP, which
+// would turn a compliant mechanic into a false-advertising problem with one
+// panel edit.
+const CASH_IMPLYING_PATTERN = /\b(coins?|cash|rupees?|inr|rs\.?|vib|money)\b|₹/i;
+
+const validateRouletteLabel = (label: unknown): string | null => {
+  if (typeof label === 'string' && CASH_IMPLYING_PATTERN.test(label)) {
+    return 'Roulette rewards are XP-only — slice labels cannot reference coins, cash, or currency (Google Play real-money-gambling policy). Use XP-focused wording instead.';
+  }
+  return null;
 };
 
 export const getRouletteItems = async (req: Request, res: Response) => {
@@ -20,6 +36,11 @@ export const getRouletteItems = async (req: Request, res: Response) => {
 export const createRouletteItem = async (req: Request, res: Response): Promise<void> => {
   try {
     const { label, color, rewardCoins, probability, sizePortion, popupType, isActive, sortOrder, imageUrl } = req.body;
+    const labelError = validateRouletteLabel(label);
+    if (labelError) {
+      res.status(400).json({ error: labelError });
+      return;
+    }
     const newItem = await prisma.rouletteItem.create({
       data: { 
         label, 
@@ -42,7 +63,13 @@ export const updateRouletteItem = async (req: Request, res: Response): Promise<v
   try {
     const { id } = req.params;
     const { label, color, rewardCoins, probability, sizePortion, popupType, isActive, sortOrder, imageUrl } = req.body;
-    
+
+    const labelError = validateRouletteLabel(label);
+    if (labelError) {
+      res.status(400).json({ error: labelError });
+      return;
+    }
+
     const dataToUpdate: any = {};
     if (label !== undefined) dataToUpdate.label = label;
     if (color !== undefined) dataToUpdate.color = color;

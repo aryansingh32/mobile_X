@@ -45,6 +45,34 @@ export const claimDailyMissions = async () => {
   return data as { claimed: boolean; coinsEarned?: number; nextBonus?: string; message?: string };
 };
 
+export const getBadges = async () => {
+  const { data } = await apiClient.get('/api/users/badges');
+  return data.data as Array<{
+    id: number;
+    name: string;
+    description: string;
+    conditionType: string;
+    conditionValue: number;
+    imageUrl?: string | null;
+    earned: boolean;
+    earnedAt: string | null;
+  }>;
+};
+
+export const getLeaderboard = async (period: 'week' | 'month' | 'all' = 'week') => {
+  const { data } = await apiClient.get('/api/users/leaderboard', { params: { period } });
+  return data.data as {
+    period: string;
+    leaders: Array<{ rank: number; name: string; coins: number; level: number; isYou: boolean }>;
+    you: { rank: number; name: string; coins: number; level: number; isYou: boolean } | null;
+  };
+};
+
+export const purchaseStreakFreeze = async () => {
+  const { data } = await apiClient.post('/api/users/streak-freeze/purchase');
+  return data as { streakFreezes: number; coinsCost: number };
+};
+
 export const registerFingerprint = async () => {
   const hardwareId = await DeviceInfo.getUniqueId();
   const deviceModel = await DeviceInfo.getModel();

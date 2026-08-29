@@ -3,9 +3,15 @@ import { Animated, StyleSheet, Text, View } from 'react-native';
 import { COLORS, MOTION, SPACING, TYPOGRAPHY } from '../constants/theme';
 import AppButton from '../components/ui/AppButton';
 import QuestBoxHero from '../components/ui/QuestBoxHero';
+import { useAppStore } from '../store/useAppStore';
 
 export const AllSetScreen = ({ onExplore }: { onExplore: () => void }) => {
   const [opened, setOpened] = useState(false);
+  // The gift-box animation used to open onto a literal zero balance — no
+  // signup bonus existed anywhere. Now the backend credits one on account
+  // creation (see authController.ts), and coinBalance already reflects it
+  // by the time this screen renders (set from the login response).
+  const coinBalance = useAppStore((s) => s.coinBalance);
   const textFade = useRef(new Animated.Value(0)).current;
   const textY = useRef(new Animated.Value(14)).current;
   const footerFade = useRef(new Animated.Value(0)).current;
@@ -27,7 +33,11 @@ export const AllSetScreen = ({ onExplore }: { onExplore: () => void }) => {
         <QuestBoxHero size={160} onOpened={handleOpened} />
         <Animated.View style={{ opacity: textFade, transform: [{ translateY: textY }] }}>
           <Text style={styles.title}>You're all set! 🎉</Text>
-          <Text style={styles.subtitle}>Let's start your earning journey with ReelFlow</Text>
+          <Text style={styles.subtitle}>
+            {coinBalance > 0
+              ? `You've been gifted ${coinBalance} coins to get started!`
+              : "Let's start your earning journey with ReelFlow"}
+          </Text>
         </Animated.View>
       </View>
       <Animated.View style={{ opacity: footerFade }} pointerEvents={opened ? 'auto' : 'none'}>

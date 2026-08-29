@@ -6,6 +6,7 @@ import { addLedgerEntry, getBalance } from '../services/ledgerService';
 import { AuthRequest } from '../middlewares/authMiddleware';
 import requestIp from 'request-ip';
 import { sendServerError, sendControllerError } from '../utils/errorResponse';
+import { checkAndAwardBadges } from '../services/badgeService';
 
 export const getCatalog = async (req: AuthRequest, res: Response) => {
   try {
@@ -183,6 +184,9 @@ export const requestWithdrawal = async (req: AuthRequest, res: Response): Promis
     }, {
       isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
     });
+
+    const totalWithdrawals = await prisma.withdrawal.count({ where: { userId } });
+    checkAndAwardBadges(userId, 'WITHDRAWAL', totalWithdrawals).catch(() => undefined);
 
     res.json({
       message: withdrawal.issuedCode ? 'Voucher code issued' : 'Withdrawal request submitted',

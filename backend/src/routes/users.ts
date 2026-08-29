@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { authenticate } from '../middlewares/authMiddleware';
-import { claimDailyBonus, claimDailyMissions, getProfile, syncStreak, getTransactions, trackActivity, getNotifications, markNotificationRead, deleteAccount } from '../controllers/userController';
+import { claimDailyBonus, claimDailyMissions, getProfile, syncStreak, getTransactions, trackActivity, getNotifications, markNotificationRead, deleteAccount, getBadges, purchaseStreakFreeze, getLeaderboard } from '../controllers/userController';
 import { registerFingerprint } from '../controllers/fingerprintController';
 import prisma from '../config/db';
 import { sendServerError } from '../utils/errorResponse';
@@ -16,6 +16,9 @@ router.get('/notifications', authenticate, getNotifications);
 router.put('/notifications/:notificationId/read', authenticate, markNotificationRead);
 router.delete('/account', authenticate, deleteAccount);
 router.post('/fingerprint', authenticate, registerFingerprint);
+router.get('/badges', authenticate, getBadges);
+router.post('/streak-freeze/purchase', authenticate, purchaseStreakFreeze);
+router.get('/leaderboard', authenticate, getLeaderboard);
 
 // FCM token registration
 router.put('/fcm-token', authenticate, async (req: any, res) => {
