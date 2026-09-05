@@ -184,4 +184,16 @@ router.get('/affiliate/purchases', authorizeFinanceAdmin, getAffiliatePurchases)
 router.put('/affiliate/purchases/:id', authorizeFinanceAdmin, updateAffiliatePurchase);
 router.post('/affiliate/purchases/:id/credit', authorizeFinanceAdmin, creditAffiliatePurchase);
 
+// Offerwall task catalog
+import {
+  getAdminOfferwallTasks, createOfferwallTask, updateOfferwallTask, deleteOfferwallTask,
+  getOfferwallCompletions,
+} from '../controllers/offerwallAdminController';
+
+router.get('/offerwall/tasks', authorizeFinanceAdmin, getAdminOfferwallTasks);
+router.post('/offerwall/tasks', authorizeFinanceAdmin, createOfferwallTask);
+router.put('/offerwall/tasks/:id', authorizeFinanceAdmin, updateOfferwallTask);
+router.delete('/offerwall/tasks/:id', authorizeFinanceAdmin, deleteOfferwallTask);
+router.get('/offerwall/completions', authorizeFinanceAdmin, getOfferwallCompletions);
+
 export default router;

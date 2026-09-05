@@ -9,55 +9,83 @@ import { sendServerError } from '../utils/errorResponse';
 const router = Router();
 const MAX_OFFERWALL_REWARD_PER_CALL = Number(process.env.MAX_OFFERWALL_REWARD_PER_CALL || 5000);
 
-// Demo task data
-const DEMO_TASKS = [
-  { id: 'demo_1', title: 'Install GameX App', description: 'Install and reach level 3', reward: 150, type: 'INSTALL' },
-  { id: 'demo_2', title: 'Complete Survey', description: '5-minute survey on shopping habits', reward: 80, type: 'SURVEY' },
-  { id: 'demo_3', title: 'Watch Video', description: 'Watch a 30-second brand video', reward: 30, type: 'VIDEO' },
-  { id: 'demo_4', title: 'Sign Up for Service', description: 'Register on FinanceApp', reward: 200, type: 'SIGNUP' },
-  { id: 'demo_5', title: 'Play Mobile Game', description: 'Reach level 5 in PuzzleKing', reward: 120, type: 'INSTALL' },
-  { id: 'demo_6', title: 'Take Quiz', description: '10-question personality quiz', reward: 60, type: 'SURVEY' },
-  { id: 'demo_7', title: 'Subscribe to Newsletter', description: 'Subscribe and confirm email', reward: 50, type: 'SIGNUP' },
-  { id: 'demo_8', title: 'Rate an App', description: 'Leave a review on Play Store', reward: 40, type: 'REVIEW' },
-];
-
-// GET /api/webhooks/offerwall/tasks — returns tasks (demo or real)
-router.get('/tasks', authenticate, async (req, res) => {
+// GET /api/webhooks/offerwall/tasks — admin-managed task catalog, minus
+// whatever this user has already completed (completed tasks disappear from
+// the list rather than showing a disabled "done" state, matching how a
+// typical offerwall surfaces available offers).
+router.get('/tasks', authenticate, async (req: any, res) => {
   try {
-    const demoMode = await prisma.appConfig.findUnique({ where: { key: 'offerwall_demo_mode' } });
-    if (demoMode?.value === 'true') {
-      return res.json({ data: DEMO_TASKS, demoMode: true });
-    }
-    // Real offerwall tasks would come from third-party SDK integration
-    res.json({ data: [], demoMode: false });
+    const userId = req.user.id;
+    const completedTaskIds = await prisma.offerwallCompletion.findMany({
+      where: { userId },
+      select: { taskId: true },
+    });
+    const completedIds = completedTaskIds
+      .map((c) => c.taskId)
+      .filter((id): id is number => id !== null);
+    const tasks = await prisma.offerwallTask.findMany({
+      where: {
+        isActive: true,
+        id: { notIn: completedIds },
+      },
+      orderBy: [{ sortOrder: 'asc' }, { createdAt: 'desc' }],
+      select: {
+        id: true,
+        title: true,
+        description: true,
+        imageUrl: true,
+        rewardCoins: true,
+        type: true,
+        externalUrl: true,
+      },
+    });
+    res.json({ data: tasks });
   } catch (error: any) {
     sendServerError(res, error);
   }
 });
 
-// POST /api/webhooks/offerwall/complete — complete a demo task
+// POST /api/webhooks/offerwall/complete — self-attested completion (no
+// third-party network is wired in, so this is trust-and-verify-later, same
+// model the old demo tasks used). Pays out exactly once per user per task:
+// the OfferwallCompletion unique(userId, taskId) constraint and the ledger's
+// own idempotency key both independently prevent a double-credit.
 router.post('/complete', authenticate, async (req: any, res) => {
   try {
-    const { taskId } = req.body;
     const userId = req.user.id;
+    const taskId = parseInt(req.body.taskId, 10);
+    if (!Number.isInteger(taskId)) {
+      res.status(400).json({ error: 'taskId is required' });
+      return;
+    }
+
+    const task = await prisma.offerwallTask.findUnique({ where: { id: taskId } });
+    if (!task || !task.isActive) {
+      res.status(404).json({ error: 'Task not found' });
+      return;
+    }
+
     const clientIp = requestIp.getClientIp(req) || 'unknown';
 
-    const demoMode = await prisma.appConfig.findUnique({ where: { key: 'offerwall_demo_mode' } });
-    if (demoMode?.value !== 'true') {
-      return res.status(400).json({ error: 'Offerwall not in demo mode' });
+    try {
+      await prisma.$transaction(async (tx) => {
+        await tx.offerwallCompletion.create({
+          data: { userId, taskId, taskTitle: task.title, rewardCoins: task.rewardCoins },
+        });
+        await addLedgerEntry(userId, task.rewardCoins, 'OFFERWALL_TASK', clientIp, `task-${taskId}`, undefined, tx);
+      });
+    } catch (e: any) {
+      if (e.code === 'P2002') {
+        // Duplicate — either the completion row or the ledger idempotency
+        // key already exists (same user, same task).
+        res.json({ message: 'Already completed', coinsEarned: 0 });
+        return;
+      }
+      throw e;
     }
 
-    const task = DEMO_TASKS.find(t => t.id === taskId);
-    if (!task) {
-      return res.status(404).json({ error: 'Task not found' });
-    }
-
-    await addLedgerEntry(userId, task.reward, 'OFFERWALL_DEMO', clientIp, `demo_${taskId}_${userId}`);
-    res.json({ message: 'Task completed', coinsEarned: task.reward });
+    res.json({ message: 'Task completed', coinsEarned: task.rewardCoins });
   } catch (error: any) {
-    if (error.code === 'P2002') {
-      return res.json({ message: 'Already completed', coinsEarned: 0 });
-    }
     sendServerError(res, error);
   }
 });

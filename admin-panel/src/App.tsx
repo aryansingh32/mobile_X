@@ -6,7 +6,7 @@ import {
   Activity, Database, Settings, ShoppingBag,
   Radio, FileCode, Shield, LineChart, Target, Bell, FlaskConical, Network, CheckSquare,
   LogOut, FileText, Layers, Terminal, MessageSquare, Filter, Play,
-  Store, GalleryHorizontal, Coins
+  Store, GalleryHorizontal, Coins, ClipboardList
 } from 'lucide-react';
 
 import AdminLogin from './pages/AdminLogin';
@@ -49,6 +49,7 @@ import TrendingShorts from './pages/TrendingShorts';
 import AffiliateProducts from './pages/AffiliateProducts';
 import AffiliateBanners from './pages/AffiliateBanners';
 import AffiliatePurchases from './pages/AffiliatePurchases';
+import OfferwallTasks from './pages/OfferwallTasks';
 
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID;
 
@@ -92,6 +93,7 @@ const Sidebar = ({ onLogout }: { onLogout: () => void }) => {
         <NavLink to="/ab-testing" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}><FlaskConical size={20} /> A/B Testing</NavLink>
         <NavLink to="/notifications" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}><Bell size={20} /> Notifications</NavLink>
         <NavLink to="/missions" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}><CheckSquare size={20} /> Mission Builder</NavLink>
+        <NavLink to="/offerwall-tasks" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}><ClipboardList size={20} /> Offerwall Tasks</NavLink>
         <NavLink to="/referrals" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}><Network size={20} /> Referral Tree</NavLink>
         
         <div className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2 mt-6 px-4">Content & News</div>
@@ -226,6 +228,7 @@ const App = () => {
               <Route path="/ab-testing" element={<ABTesting />} />
               <Route path="/notifications" element={<Notifications />} />
               <Route path="/missions" element={<Missions />} />
+              <Route path="/offerwall-tasks" element={<OfferwallTasks />} />
               <Route path="/referrals" element={<Referrals />} />
               <Route path="/fraud" element={<FraudLogs />} />
               <Route path="/security" element={<SecurityLogs />} />

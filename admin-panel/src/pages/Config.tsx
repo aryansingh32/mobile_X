@@ -17,7 +17,6 @@ type ConfigCategory = {
 const descriptions: Record<string, string> = {
   daily_ad_cap: 'Maximum rewarded ads credited per user each day.',
   min_withdrawal_coins: 'Minimum coins required for redemption.',
-  offerwall_demo_mode: 'Set to true to expose demo offerwall tasks.',
   post_ad_lockout_ms: 'Interaction lockout after an ad closes (ms).',
   daily_bonus_coins: 'Coins awarded for daily login bonus.',
   ad_cooldown_seconds: 'Minimum seconds between rewarded ad claims.',
@@ -84,7 +83,7 @@ const categories: ConfigCategory[] = [
     title: '🎮 App Behavior',
     subtitle: 'Runtime behavior switches and interaction timing.',
     tone: 'behavior',
-    keys: ['offerwall_demo_mode', 'post_ad_lockout_ms', 'referral_percent'],
+    keys: ['post_ad_lockout_ms', 'referral_percent'],
   },
 ];
 

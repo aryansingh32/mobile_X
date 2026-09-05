@@ -172,3 +172,11 @@ export const getAffiliatePurchases = (params?: { status?: string; userId?: numbe
   api.get('/admin/affiliate/purchases', { params });
 export const updateAffiliatePurchase = (id: number, data: any) => api.put(`/admin/affiliate/purchases/${id}`, data);
 export const creditAffiliatePurchase = (id: number) => api.post(`/admin/affiliate/purchases/${id}/credit`);
+
+// Offerwall task catalog
+export const getOfferwallTasks = () => api.get('/admin/offerwall/tasks');
+export const createOfferwallTask = (data: any) => api.post('/admin/offerwall/tasks', data);
+export const updateOfferwallTask = (id: number, data: any) => api.put(`/admin/offerwall/tasks/${id}`, data);
+export const deleteOfferwallTask = (id: number) => api.delete(`/admin/offerwall/tasks/${id}`);
+export const getOfferwallCompletions = (params?: { taskId?: number }) =>
+  api.get('/admin/offerwall/completions', { params });
