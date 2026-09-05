@@ -4,8 +4,20 @@ import { Alert } from 'react-native';
 import CryptoJS from 'crypto-js';
 
 const BASE_URL = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:5000';
-const API_CLIENT_SECRET = process.env.EXPO_PUBLIC_API_CLIENT_SECRET || 'super_secret_client_key';
+const API_CLIENT_SECRET = process.env.EXPO_PUBLIC_API_CLIENT_SECRET;
 const MAX_GET_RETRIES = 2;
+
+// The backend rejects any request whose signature doesn't match this secret
+// (signatureMiddleware.ts), so a missing/mismatched value doesn't fail
+// quietly — every API call breaks. Failing loudly at startup, matching the
+// backend's own getRequiredSecret() behavior, is better than shipping a
+// hardcoded fallback that silently becomes "the real secret" in every build
+// that forgets to set this.
+if (!API_CLIENT_SECRET) {
+  throw new Error(
+    'EXPO_PUBLIC_API_CLIENT_SECRET is not set. Set it in .env (and in the EAS build profile for release builds) — it must match the backend\'s API_CLIENT_SECRET exactly.'
+  );
+}
 
 const apiClient = axios.create({
   baseURL: BASE_URL,

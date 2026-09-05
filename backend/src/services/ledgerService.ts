@@ -47,15 +47,26 @@ export const addLedgerEntry = async (
     : `${source}:${userId}:${uuidv4()}`;
 
   const writeLedgerEntry = async (db: LedgerClient) => {
-    const user = await db.user.findUnique({
-      where: { id: userId },
-      select: { shadowBanned: true },
-    });
+    // FOR UPDATE locks this user's row for the rest of the surrounding
+    // transaction. Without it, two concurrent debits (a double-tapped
+    // withdrawal, two ad-reward callbacks racing) can both run
+    // sumEffectiveBalance() before either commits its INSERT, both see the
+    // same pre-debit balance, and both pass the insufficient-balance check
+    // below — a classic TOCTOU overdraft. The lock forces the second
+    // transaction to wait for the first to commit, so it re-reads the
+    // post-debit balance instead of racing against it. Every caller of
+    // addLedgerEntry runs inside a real transaction (either the internal
+    // one below or a `tx` passed in by the caller), so this lock is always
+    // held for the write that follows, not released early.
+    const rows = await db.$queryRaw<{ shadowBanned: boolean }[]>`
+      SELECT "shadowBanned" FROM "User" WHERE id = ${userId} FOR UPDATE
+    `;
+    const user = rows[0];
 
     if (!user) {
       throw new Error('User not found');
     }
-  
+
     if (amount < 0) {
       const balance = await sumEffectiveBalance(db, userId);
       if (balance + amount < 0) {

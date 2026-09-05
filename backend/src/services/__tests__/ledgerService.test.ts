@@ -21,9 +21,7 @@ jest.mock('../../config/db', () => ({
       aggregate: jest.fn(),
       create: jest.fn(),
     },
-    user: {
-      findUnique: jest.fn(),
-    },
+    $queryRaw: jest.fn(),
     $transaction: jest.fn(),
   },
 }));
@@ -33,7 +31,7 @@ import { getBalance, addLedgerEntry } from '../ledgerService';
 
 const mockedPrisma = prisma as unknown as {
   coinLedger: { aggregate: jest.Mock; create: jest.Mock };
-  user: { findUnique: jest.Mock };
+  $queryRaw: jest.Mock;
   $transaction: jest.Mock;
 };
 
@@ -73,7 +71,7 @@ describe('ledgerService — shadow-ban balance exclusion', () => {
       // (fraud, doesn't count) and 10 legitimate coins from before the ban.
       // The effective, non-shadow balance is 10 — so a 100-coin withdrawal
       // debit must be rejected even though the raw ledger sum is 510.
-      mockedPrisma.user.findUnique.mockResolvedValue({ shadowBanned: true });
+      mockedPrisma.$queryRaw.mockResolvedValue([{ shadowBanned: true }]);
       mockedPrisma.coinLedger.aggregate.mockResolvedValue({ _sum: { amount: 10 } }); // post-exclusion sum
       mockedPrisma.$transaction.mockImplementation(runInTransaction(mockedPrisma));
 
@@ -93,7 +91,7 @@ describe('ledgerService — shadow-ban balance exclusion', () => {
     });
 
     it('allows a debit covered by legitimate (non-shadow) balance', async () => {
-      mockedPrisma.user.findUnique.mockResolvedValue({ shadowBanned: false });
+      mockedPrisma.$queryRaw.mockResolvedValue([{ shadowBanned: false }]);
       mockedPrisma.coinLedger.aggregate.mockResolvedValue({ _sum: { amount: 500 } });
       mockedPrisma.coinLedger.create.mockResolvedValue({ id: 1 });
       mockedPrisma.$transaction.mockImplementation(runInTransaction(mockedPrisma));
@@ -108,7 +106,7 @@ describe('ledgerService — shadow-ban balance exclusion', () => {
     });
 
     it('prefixes credits with SHADOW_ for shadow-banned users, without blocking them', async () => {
-      mockedPrisma.user.findUnique.mockResolvedValue({ shadowBanned: true });
+      mockedPrisma.$queryRaw.mockResolvedValue([{ shadowBanned: true }]);
       mockedPrisma.coinLedger.create.mockResolvedValue({ id: 2 });
       mockedPrisma.$transaction.mockImplementation(runInTransaction(mockedPrisma));
 
