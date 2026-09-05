@@ -79,7 +79,7 @@ const CoinRain = ({ visible, amount, onComplete }: CoinRainProps) => {
                 { opacity, transform: [{ translateX }, { translateY }, { scale }, { rotate: particle.rotation }] },
               ]}
             >
-              <VIBIcon size={32} />
+              <VIBIcon size={32} animated={false} />
             </Animated.View>
           );
         })}

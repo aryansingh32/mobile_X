@@ -163,4 +163,25 @@ router.put('/roulette/:id', authorizeSuperAdmin, updateRouletteItem);
 router.delete('/roulette/:id', authorizeSuperAdmin, deleteRouletteItem);
 router.get('/roulette/analytics', authorizeSuperAdmin, getRouletteAnalytics);
 
+// Affiliate marketplace
+import {
+  getAdminAffiliateProducts, createAffiliateProduct, updateAffiliateProduct, deleteAffiliateProduct,
+  getAdminAffiliateBanners, createAffiliateBanner, updateAffiliateBanner, deleteAffiliateBanner,
+  getAffiliatePurchases, updateAffiliatePurchase, creditAffiliatePurchase,
+} from '../controllers/affiliateAdminController';
+
+router.get('/affiliate/products', authorizeFinanceAdmin, getAdminAffiliateProducts);
+router.post('/affiliate/products', authorizeFinanceAdmin, createAffiliateProduct);
+router.put('/affiliate/products/:id', authorizeFinanceAdmin, updateAffiliateProduct);
+router.delete('/affiliate/products/:id', authorizeFinanceAdmin, deleteAffiliateProduct);
+
+router.get('/affiliate/banners', authorizeFinanceAdmin, getAdminAffiliateBanners);
+router.post('/affiliate/banners', authorizeFinanceAdmin, createAffiliateBanner);
+router.put('/affiliate/banners/:id', authorizeFinanceAdmin, updateAffiliateBanner);
+router.delete('/affiliate/banners/:id', authorizeFinanceAdmin, deleteAffiliateBanner);
+
+router.get('/affiliate/purchases', authorizeFinanceAdmin, getAffiliatePurchases);
+router.put('/affiliate/purchases/:id', authorizeFinanceAdmin, updateAffiliatePurchase);
+router.post('/affiliate/purchases/:id/credit', authorizeFinanceAdmin, creditAffiliatePurchase);
+
 export default router;

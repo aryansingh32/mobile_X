@@ -209,6 +209,7 @@ export const BUNDLED_DEFAULT_CONFIG: RemoteConfigPayload = {
     // Nav interstitials enabled by default
     nav_ads_enabled: true,
     maintenance_mode: false,
+    affiliate_store_enabled: false,
   },
   screenSections: {
     HOME: [

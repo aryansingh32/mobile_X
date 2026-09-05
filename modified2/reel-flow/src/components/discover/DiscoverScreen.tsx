@@ -28,7 +28,7 @@ const getSourceAvatar = (sourceName: string) => {
   return `https://ui-avatars.com/api/?name=${encodeURIComponent(sourceName)}&background=random&color=fff&size=100`;
 };
 
-export const DiscoverScreen: React.FC = () => {
+export const DiscoverScreen: React.FC = React.memo(() => {
   const insets = useSafeAreaInsets();
   const { isAdPlaying, setAdPlaying, canWatchAd, incrementAdCount, updateBalance, todayCoinsEarned, trackEvent } = useAppStore(useShallow(s => ({ isAdPlaying: s.isAdPlaying, setAdPlaying: s.setAdPlaying, canWatchAd: s.canWatchAd, incrementAdCount: s.incrementAdCount, updateBalance: s.updateBalance, todayCoinsEarned: s.todayCoinsEarned, trackEvent: s.trackEvent })));
   const { config: adPlacement, canShow, recordShown } = useAdPlacement('discover_feed_sponsored_card');
@@ -441,6 +441,11 @@ export const DiscoverScreen: React.FC = () => {
             <ShimmerCard style={{ marginBottom: ITEM_SPACING }} />
             <ShimmerCard />
           </View>
+        ) : data.length === 0 ? (
+          <View style={styles.errorState}>
+            <Text style={styles.errorText}>No stories available right now.</Text>
+            <Text style={styles.retryText} onPress={() => loadData()}>Tap to refresh</Text>
+          </View>
         ) : (
           <Animated.FlatList
             data={data}
@@ -502,7 +507,7 @@ export const DiscoverScreen: React.FC = () => {
       <CoinRain visible={coinRain.visible} amount={coinRain.amount} onComplete={() => setCoinRain({ visible: false, amount: 0 })} />
     </View>
   );
-};
+});
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: '#111' },

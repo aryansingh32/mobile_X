@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, NavLink } from 'react-router-dom';
 import { GoogleOAuthProvider } from '@react-oauth/google';
-import { 
-  ShieldCheck, Users, AlertTriangle, CreditCard, LayoutDashboard, 
+import {
+  ShieldCheck, Users, AlertTriangle, CreditCard, LayoutDashboard,
   Activity, Database, Settings, ShoppingBag,
   Radio, FileCode, Shield, LineChart, Target, Bell, FlaskConical, Network, CheckSquare,
-  LogOut, FileText, Layers, Terminal, MessageSquare, Filter, Play
+  LogOut, FileText, Layers, Terminal, MessageSquare, Filter, Play,
+  Store, GalleryHorizontal, Coins
 } from 'lucide-react';
 
 import AdminLogin from './pages/AdminLogin';
@@ -45,6 +46,9 @@ import ScreenLayout from './pages/ScreenLayout';
 import AdAnalytics from './pages/AdAnalytics';
 import RouletteConfig from './pages/RouletteConfig';
 import TrendingShorts from './pages/TrendingShorts';
+import AffiliateProducts from './pages/AffiliateProducts';
+import AffiliateBanners from './pages/AffiliateBanners';
+import AffiliatePurchases from './pages/AffiliatePurchases';
 
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID;
 
@@ -77,6 +81,11 @@ const Sidebar = ({ onLogout }: { onLogout: () => void }) => {
         <NavLink to="/feature-flags" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}><AlertTriangle size={20} /> Feature Flags</NavLink>
         <NavLink to="/screen-layout" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}><LayoutDashboard size={20} /> Screen Layouts</NavLink>
         <NavLink to="/ad-analytics" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}><LineChart size={20} /> Ad Analytics</NavLink>
+
+        <div className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2 mt-6 px-4">Affiliate Store</div>
+        <NavLink to="/affiliate-products" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}><Store size={20} /> Products</NavLink>
+        <NavLink to="/affiliate-banners" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}><GalleryHorizontal size={20} /> Banners</NavLink>
+        <NavLink to="/affiliate-purchases" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}><Coins size={20} /> Purchases</NavLink>
 
         <div className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2 mt-6 px-4">Growth & Engagement</div>
         <NavLink to="/retention" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}><Target size={20} /> Retention Lab</NavLink>
@@ -239,6 +248,10 @@ const App = () => {
               <Route path="/screen-layout" element={<ScreenLayout />} />
               <Route path="/ad-analytics" element={<AdAnalytics />} />
               <Route path="/roulette" element={<RouletteConfig />} />
+
+              <Route path="/affiliate-products" element={<AffiliateProducts />} />
+              <Route path="/affiliate-banners" element={<AffiliateBanners />} />
+              <Route path="/affiliate-purchases" element={<AffiliatePurchases />} />
 
               <Route path="*" element={<div className="p-6 text-white">Module Under Construction.</div>} />
             </Routes>

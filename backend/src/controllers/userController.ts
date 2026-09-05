@@ -55,7 +55,6 @@ export const getProfile = async (req: any, res: Response) => {
       adRewardedInterstitialCoins,
       adRewardedDiscoverCoins,
       dailyBonusCoins,
-      shortWatchRewardCoins,
       rouletteDailyChances,
       rouletteAdsWatchedToday,
       rouletteSpinsToday,
@@ -83,7 +82,6 @@ export const getProfile = async (req: any, res: Response) => {
       getConfigInt('ad_rewarded_interstitial_coins', 50),
       getConfigInt('ad_rewarded_discover_coins', 50),
       getConfigInt('daily_bonus_coins', 20),
-      getConfigInt('short_watch_reward_coins', 0),
       getConfigInt('roulette_daily_chances', 2),
       prisma.coinLedger.count({
         where: {
@@ -124,7 +122,6 @@ export const getProfile = async (req: any, res: Response) => {
           ad_rewarded_interstitial_coins: adRewardedInterstitialCoins,
           ad_rewarded_discover_coins: adRewardedDiscoverCoins,
           daily_bonus_coins: dailyBonusCoins,
-          short_watch_reward_coins: shortWatchRewardCoins,
           roulette_daily_chances: rouletteDailyChances,
         },
       },

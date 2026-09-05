@@ -333,13 +333,12 @@ const styles = StyleSheet.create({
   },
   pinContainer: {
     position: 'absolute',
-    top: '50%',
-    left: '50%',
-    marginTop: -30,
-    marginLeft: -29.5,
-    width: 60,
-    height: 60,
-    // transform: [{ rotate: '180deg' }],
+    // top/left '50%' replaced — New Arch requires numeric Double, not string percentage
+    // Centering achieved via absoluteFillObject equivalent + flex alignment
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
     alignItems: 'center',
     justifyContent: 'center',
     zIndex: 10,

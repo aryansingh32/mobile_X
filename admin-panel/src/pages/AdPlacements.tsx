@@ -40,16 +40,24 @@ const AdPlacements: React.FC = () => {
   };
 
   const handleSave = async (id: number) => {
+    if ((editData.intervalMin ?? 0) > (editData.intervalMax ?? 0)) {
+      alert('Interval Min must be <= Interval Max');
+      return;
+    }
     setSaving(true);
     try {
       await updateAdPlacement(id, editData);
       setEditId(null);
       fetchPlacements();
-    } catch (e) { console.error(e); }
+    } catch (e: any) { alert(e.response?.data?.error || 'Failed to save'); }
     setSaving(false);
   };
 
   const handleCreate = async () => {
+    if (newData.intervalMin > newData.intervalMax) {
+      alert('Interval Min must be <= Interval Max');
+      return;
+    }
     setSaving(true);
     try {
       await createAdPlacement(newData);
@@ -125,7 +133,7 @@ const AdPlacements: React.FC = () => {
             {[['Interval Min', 'intervalMin'], ['Interval Max', 'intervalMax'], ['Cooldown (s)', 'cooldownSeconds'], ['Max/Session', 'maxPerSession']].map(([label, key]) => (
               <div key={key}>
                 <label className="text-xs text-gray-400 mb-1 block">{label}</label>
-                <input type="number" value={(newData as any)[key]} onChange={e => setNewData({...newData, [key]: parseInt(e.target.value) || 0})} className="w-full bg-[#252525] border border-[#333] rounded-lg px-3 py-2 text-white text-sm" />
+                <input type="number" min={0} value={(newData as any)[key]} onChange={e => setNewData({...newData, [key]: Math.max(0, parseInt(e.target.value) || 0)})} className="w-full bg-[#252525] border border-[#333] rounded-lg px-3 py-2 text-white text-sm" />
               </div>
             ))}
           </div>
@@ -171,7 +179,7 @@ const AdPlacements: React.FC = () => {
                 {[['Interval Min', 'intervalMin'], ['Interval Max', 'intervalMax'], ['Cooldown (s)', 'cooldownSeconds'], ['Max/Session', 'maxPerSession'], ['Skip First N', 'skipFirstNActions']].map(([label, key]) => (
                   <div key={key}>
                     <label className="text-xs text-gray-400">{label}</label>
-                    <input type="number" value={(editData as any)[key] ?? ''} onChange={e => setEditData({...editData, [key]: parseInt(e.target.value) || 0})} className="w-full bg-[#252525] border border-[#333] rounded px-2 py-1 text-white text-sm mt-1" />
+                    <input type="number" min={0} value={(editData as any)[key] ?? ''} onChange={e => setEditData({...editData, [key]: Math.max(0, parseInt(e.target.value) || 0)})} className="w-full bg-[#252525] border border-[#333] rounded px-2 py-1 text-white text-sm mt-1" />
                   </div>
                 ))}
               </div>

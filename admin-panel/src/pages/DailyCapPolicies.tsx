@@ -34,9 +34,9 @@ const DailyCapPolicies: React.FC = () => {
     try {
       await updateDailyCapPolicy(tier, updates);
       await fetchPolicies();
-    } catch (e) {
+    } catch (e: any) {
       console.error(e);
-      alert('Failed to update policy');
+      alert(e.response?.data?.error || 'Failed to update policy');
     }
     setSaving(null);
   };
@@ -89,11 +89,12 @@ const DailyCapPolicies: React.FC = () => {
                 <div className="flex">
                   <input
                     type="number"
+                    min={0}
                     value={policy.maxAdsPerDay}
                     onChange={(e) => {
                       const updated = [...policies];
                       const idx = updated.findIndex((p) => p.tier === policy.tier);
-                      updated[idx].maxAdsPerDay = parseInt(e.target.value) || 0;
+                      updated[idx].maxAdsPerDay = Math.max(0, parseInt(e.target.value) || 0);
                       setPolicies(updated);
                     }}
                     className="w-full bg-[#252525] border border-[#333] rounded-l-lg px-3 py-2 text-white font-mono"
@@ -113,11 +114,12 @@ const DailyCapPolicies: React.FC = () => {
                 <div className="flex">
                   <input
                     type="number"
+                    min={0}
                     value={policy.minCooldownSeconds}
                     onChange={(e) => {
                       const updated = [...policies];
                       const idx = updated.findIndex((p) => p.tier === policy.tier);
-                      updated[idx].minCooldownSeconds = parseInt(e.target.value) || 0;
+                      updated[idx].minCooldownSeconds = Math.max(0, parseInt(e.target.value) || 0);
                       setPolicies(updated);
                     }}
                     className="w-full bg-[#252525] border border-[#333] rounded-l-lg px-3 py-2 text-white font-mono"
@@ -137,11 +139,12 @@ const DailyCapPolicies: React.FC = () => {
                 <div className="flex">
                   <input
                     type="number"
+                    min={0}
                     value={policy.maxCoinsPerDay}
                     onChange={(e) => {
                       const updated = [...policies];
                       const idx = updated.findIndex((p) => p.tier === policy.tier);
-                      updated[idx].maxCoinsPerDay = parseInt(e.target.value) || 0;
+                      updated[idx].maxCoinsPerDay = Math.max(0, parseInt(e.target.value) || 0);
                       setPolicies(updated);
                     }}
                     className="w-full bg-[#252525] border border-[#333] rounded-l-lg px-3 py-2 text-yellow-400 font-mono"

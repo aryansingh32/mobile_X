@@ -81,6 +81,8 @@ export const registerFingerprint = async (req: any, res: Response): Promise<void
         lastIpAddress: clientIp,
         osVersion,
         timezone,
+        isRooted: !!isRooted,
+        isEmulator: !!isEmulator,
         trustScore: deviceTrustScore
       },
       create: {

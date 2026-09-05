@@ -14,7 +14,6 @@ import { logFraud } from '../services/fraudService';
 const SAFE_PUBLIC_KEYS = [
   'ad_rewarded_coins', 'ad_rewarded_interstitial_coins', 'ad_rewarded_discover_coins',
   'daily_ad_cap', 'daily_bonus_coins', 'min_withdrawal_coins', 'coin_to_inr_rate',
-  'short_watch_seconds_required',
 ];
 
 const ADMOB_CONFIG_KEYS = [
@@ -92,6 +91,19 @@ export const updateConfig = async (req: AuthRequest, res: Response): Promise<voi
     if (value.length === 0) {
       res.status(400).json({ error: 'Config value cannot be empty' });
       return;
+    }
+
+    // AppConfig has no per-key type metadata (it's a plain string k/v store used
+    // for both numeric knobs like coin_to_inr_rate and free text). Use the
+    // existing stored value as an implicit type oracle: if a key already holds
+    // a number, refuse to overwrite it with something that no longer parses as
+    // one — callers throughout the codebase do direct arithmetic on these.
+    const existing = await prisma.appConfig.findUnique({ where: { key } });
+    if (existing && existing.value.trim().length > 0 && Number.isFinite(Number(existing.value))) {
+      if (!Number.isFinite(Number(value))) {
+        res.status(400).json({ error: `Config key "${key}" currently holds a numeric value; the new value must also be numeric` });
+        return;
+      }
     }
 
     const config = await prisma.appConfig.upsert({

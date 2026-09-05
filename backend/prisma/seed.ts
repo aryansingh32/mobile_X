@@ -11,12 +11,6 @@ async function main() {
     { key: 'daily_ad_cap', value: '20' },
     { key: 'discover_ad_interval_min', value: '3' },
     { key: 'discover_ad_interval_max', value: '6' },
-    // Deliberately 0: YouTube API Services Developer Policy prohibits
-    // incentivizing/rewarding users for watching YouTube content — do not
-    // set this nonzero without decoupling it from the withdrawable coin
-    // ledger first. See tos_compliance_audit.md at the repo root.
-    { key: 'short_watch_reward_coins', value: '0' },
-    { key: 'short_watch_seconds_required', value: '8' },
     { key: 'streak_bonus_7', value: '100' },
     { key: 'streak_bonus_30', value: '500' },
     { key: 'offerwall_demo_mode', value: 'true' },

@@ -13,9 +13,12 @@ import DailyStreakRow from '../components/ui/DailyStreakRow';
 import CoinRain from '../components/ui/CoinRain';
 import { useToast } from '../components/ui/Toast';
 import { VIBIcon } from '../components/ui/VIBIcon';
+import { StoreScreen } from '../components/affiliate/StoreScreen';
+import { useFeatureFlag } from '../hooks/useFeatureFlag';
 
-export const RewardsScreen = () => {
+export const RewardsScreen = React.memo(() => {
   const insets = useSafeAreaInsets();
+  const storeEnabled = useFeatureFlag('affiliate_store_enabled', false);
 
   const mountedRef = React.useRef(true);
   React.useEffect(() => { return () => { mountedRef.current = false; } }, []);
@@ -25,7 +28,7 @@ export const RewardsScreen = () => {
   const claimingBonusRef = React.useRef(false);
 
   const { coinBalance, user, updateBalance, setBalance, dailyBonusAvailable, setDailyBonusAvailable, trackEvent } = useAppStore(useShallow(s => ({ coinBalance: s.coinBalance, user: s.user, updateBalance: s.updateBalance, setBalance: s.setBalance, dailyBonusAvailable: s.dailyBonusAvailable, setDailyBonusAvailable: s.setDailyBonusAvailable, trackEvent: s.trackEvent })));
-  const [activeTab, setActiveTab] = useState<'tasks' | 'daily' | 'referrals'>('tasks');
+  const [activeTab, setActiveTab] = useState<'shop' | 'tasks' | 'daily' | 'referrals'>(() => (storeEnabled ? 'shop' : 'tasks'));
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [tasks, setTasks] = useState<any[]>([]);
@@ -41,7 +44,11 @@ export const RewardsScreen = () => {
     try {
       if (!mounted) return;
       setError('');
-      if (activeTab === 'tasks') {
+      if (activeTab === 'shop') {
+        // StoreScreen fetches and manages its own loading state internally —
+        // nothing to do here besides clearing the top-level loading spinner.
+        return;
+      } else if (activeTab === 'tasks') {
         const res = await getOfferwallTasks();
         if (mounted) setTasks(res.data || []);
       } else if (activeTab === 'referrals') {
@@ -142,7 +149,7 @@ export const RewardsScreen = () => {
 
   const renderTabs = () => (
     <View style={styles.tabContainer}>
-      {(['tasks', 'daily', 'referrals'] as const).map((tab) => (
+      {(storeEnabled ? (['shop', 'tasks', 'daily', 'referrals'] as const) : (['tasks', 'daily', 'referrals'] as const)).map((tab) => (
         <TouchableOpacity
           key={tab}
           style={[styles.tab, activeTab === tab && styles.activeTab]}
@@ -170,7 +177,14 @@ export const RewardsScreen = () => {
 
       {renderTabs()}
 
-      <ScrollView 
+      {activeTab === 'shop' ? (
+        // StoreScreen owns a FlatList internally — it must not be nested
+        // inside the ScrollView below (nesting a virtualized list inside a
+        // plain ScrollView defeats virtualization and was already a real
+        // perf bug once in this app's shorts feed).
+        <StoreScreen />
+      ) : (
+      <ScrollView
         style={styles.content}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#FFD700" />}
       >
@@ -305,10 +319,11 @@ export const RewardsScreen = () => {
         )}
         <View style={{ height: 100 }} />
       </ScrollView>
+      )}
       <CoinRain visible={showRain} amount={rainAmount} onComplete={() => setShowRain(false)} />
     </View>
   );
-};
+});
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#111' },

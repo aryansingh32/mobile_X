@@ -4,13 +4,6 @@ const prisma = new PrismaClient();
 async function seedAppConfig() {
   const configs = [
     { key: 'daily_ad_cap', value: '20' },
-    { key: 'short_watch_seconds_required', value: '8' },
-    // Deliberately 0: YouTube API Services Developer Policy prohibits
-    // incentivizing/rewarding users for watching YouTube content. If this is
-    // ever changed to a nonzero value in the admin panel, it must not be tied
-    // to real-money-withdrawable coins. See tos_compliance_audit.md /
-    // playstore_tos_audit_report.md at the repo root.
-    { key: 'short_watch_reward_coins', value: '0' },
     { key: 'daily_bonus_coins', value: '20' },
     { key: 'ad_cooldown_seconds', value: '60' },
     { key: 'min_withdrawal_coins', value: '500' },

@@ -7,7 +7,6 @@ import { addExp } from '../services/expService';
 import { AuthRequest } from '../middlewares/authMiddleware';
 import requestIp from 'request-ip';
 import { sendServerError } from '../utils/errorResponse';
-import logger from '../utils/logger';
 
 const getConfigInt = async (key: string, fallback: number): Promise<number> => {
   const config = await prisma.appConfig.findUnique({ where: { key } });
@@ -196,105 +195,6 @@ export const handleAdMobSSV = async (req: any, res: Response): Promise<void> => 
   } catch (error: any) {
     console.error('SSV Error:', error);
     res.status(500).send('Internal Server Error');
-  }
-};
-
-export const claimShortReward = async (req: AuthRequest, res: Response): Promise<void> => {
-  try {
-    const userId = req.user.id;
-    const { videoId, watchSeconds, sessionId, deviceId } = req.body;
-
-    if (!videoId || watchSeconds == null || !sessionId) {
-      res.status(400).json({ error: 'videoId, watchSeconds, and sessionId are required' });
-      return;
-    }
-    const parsedWatchSeconds = Number(watchSeconds);
-    if (!Number.isFinite(parsedWatchSeconds) || parsedWatchSeconds <= 0 || parsedWatchSeconds > 60) {
-      res.status(400).json({ error: 'watchSeconds must be between 1 and 60' });
-      return;
-    }
-
-    // Get min watch time from config
-    const minWatchConfig = await prisma.appConfig.findUnique({
-      where: { key: 'short_watch_seconds_required' },
-    });
-    const minWatch = minWatchConfig ? parseInt(minWatchConfig.value) : 8;
-
-    if (parsedWatchSeconds < minWatch) {
-      res.status(400).json({ error: `Minimum ${minWatch} seconds of watch time required` });
-      return;
-    }
-
-    const cooldownStart = new Date(Date.now() - 24 * 60 * 60 * 1000);
-    const recentClaim = await prisma.shortsSessions.findFirst({
-      where: { userId, videoId: String(videoId), timestamp: { gte: cooldownStart } },
-      select: { id: true },
-    });
-    if (recentClaim) {
-      res.json({ message: 'Already rewarded for this video today', coinsEarned: 0 });
-      return;
-    }
-
-    const shortDailyCap = await getConfigInt('short_daily_cap', 50);
-    const todayStart = new Date();
-    todayStart.setHours(0, 0, 0, 0);
-    const shortsWatchedToday = await prisma.coinLedger.count({
-      where: { userId, source: 'SHORT_WATCH', timestamp: { gte: todayStart } },
-    });
-    
-    if (shortsWatchedToday >= shortDailyCap) {
-      res.json({ message: 'Daily limit reached for short videos', coinsEarned: 0 });
-      return;
-    }
-
-    // Get reward amount from config
-    const rewardConfig = await prisma.appConfig.findUnique({
-      where: { key: 'short_watch_reward_coins' },
-    });
-    let rewardCoins = rewardConfig ? parseInt(rewardConfig.value) : 0;
-
-    // Hard ceiling: YouTube API Services Developer Policy prohibits
-    // incentivizing/rewarding users for watching YouTube content. The
-    // config default is 0, but it's an admin-editable AppConfig row — this
-    // makes that safe by construction, not just by convention. A nonzero
-    // reward is only ever honored if a second, explicitly-named flag
-    // confirms someone actually signed off on the policy risk; flipping
-    // short_watch_reward_coins alone can never pay out real coins again.
-    if (rewardCoins > 0) {
-      const legalReviewApproved = await getConfigBoolean('short_watch_reward_coins_legal_review_approved', false);
-      if (!legalReviewApproved) {
-        logger.warn('short_watch_reward_coins is nonzero but legal-review flag is not set — forcing reward to 0', { configuredValue: rewardCoins });
-        rewardCoins = 0;
-      }
-    }
-
-    const clientIp = requestIp.getClientIp(req) || 'unknown';
-
-    // The client provides a sessionId which MUST be used as the idempotency key to prevent replays
-    const rewardSessionId = crypto.createHash('sha256').update(String(sessionId)).digest('hex');
-
-    if (rewardCoins > 0) {
-      // Server-derived key prevents parallel or replayed claims for the same video/day.
-      try {
-        await addLedgerEntry(userId, rewardCoins, 'SHORT_WATCH', clientIp, rewardSessionId, deviceId);
-      } catch (e: any) {
-        if (e.code === 'P2002') {
-          // Duplicate idempotency key — already claimed
-          res.json({ message: 'Already claimed', coinsEarned: 0 });
-          return;
-        }
-        throw e;
-      }
-    }
-
-    // Log the session
-    await prisma.shortsSessions.create({
-      data: { userId, videoId: String(videoId), watchSeconds: Math.floor(parsedWatchSeconds), coinsEarned: rewardCoins },
-    });
-
-    res.json({ message: rewardCoins > 0 ? 'Reward claimed' : 'Session tracked', coinsEarned: rewardCoins });
-  } catch (error: any) {
-    sendServerError(res, error);
   }
 };
 
