@@ -163,14 +163,20 @@ const ConfigPage = () => {
   const groupedKeys = new Set(categories.flatMap(category => category.keys));
   const customConfigs = configs.filter(config => !groupedKeys.has(config.key));
 
-  const validateConfig = (key: string, value: string) => {
+  const validateConfig = (key: string, value: string, existingValue?: string) => {
     if (!/^[a-z0-9_]{2,80}$/.test(key)) return 'Keys must use lowercase letters, numbers, and underscores.';
     if (value.trim().length === 0) return 'Value cannot be empty.';
+    // Config is a plain string k/v store with no per-key type — many keys (coin
+    // amounts, exchange rates, ms durations) are consumed as numbers downstream.
+    // If this key already holds a number, don't let it silently become non-numeric.
+    if (existingValue !== undefined && existingValue.trim().length > 0 && Number.isFinite(Number(existingValue)) && !Number.isFinite(Number(value))) {
+      return `"${key}" currently holds a numeric value — the new value must also be numeric.`;
+    }
     return '';
   };
 
   const handleSave = async (key: string) => {
-    const validationError = validateConfig(key, editValue);
+    const validationError = validateConfig(key, editValue, configMap.get(key)?.value);
     if (validationError) {
       setError(validationError);
       return;
@@ -187,9 +193,9 @@ const ConfigPage = () => {
           : [{ key, value: editValue }, ...current];
       });
       setEditingKey(null);
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
-      setError('Failed to update configuration. Check the value and try again.');
+      setError(err.response?.data?.error || 'Failed to update configuration. Check the value and try again.');
     } finally {
       setSavingKey(null);
     }
@@ -212,8 +218,8 @@ const ConfigPage = () => {
       setConfigs(current => [{ key, value }, ...current.filter(config => config.key !== key)]);
       setNewConfig({ key: '', value: '' });
       setAdding(false);
-    } catch {
-      setError('Could not add this configuration key.');
+    } catch (err: any) {
+      setError(err.response?.data?.error || 'Could not add this configuration key.');
     } finally {
       setSavingKey(null);
     }

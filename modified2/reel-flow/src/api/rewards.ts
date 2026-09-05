@@ -1,10 +1,5 @@
 import apiClient from './client';
 
-export const claimShortReward = async (videoId: string, watchSeconds: number, sessionId: string, deviceId?: string) => {
-  const { data } = await apiClient.post('/api/rewards/shorts', { videoId, watchSeconds, sessionId, deviceId });
-  return data as { message: string; coinsEarned: number };
-};
-
 export const claimAdReward = async (adType: string, adSessionId: string) => {
   const { data } = await apiClient.post('/api/rewards/ad', { adType, adSessionId });
   return data as { message: string; coinsEarned: number };

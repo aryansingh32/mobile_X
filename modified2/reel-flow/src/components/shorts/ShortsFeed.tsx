@@ -1,10 +1,10 @@
 import { useShallow } from 'zustand/react/shallow';
 import axios from 'axios';
 import React, { useRef, useState, useCallback, useMemo, useEffect } from 'react';
-import { View, StyleSheet, Dimensions, FlatList, ViewToken, Platform, Text, Pressable, Alert, ActivityIndicator, Animated, AppState, TouchableOpacity, Image } from 'react-native';
+import { View, StyleSheet, Dimensions, FlatList, ViewToken, Platform, Text, Pressable, Alert, ActivityIndicator, Animated, AppState, Image } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { triggerHaptic } from '../../utils/haptics';
-import { ShortItem, type ShortData } from './ShortItem';
+import { ShortItem, type ShortData, type ShortItemHandle } from './ShortItem';
 import { fetchShorts } from '../../api/shorts';
 import { useAppStore } from '../../store/useAppStore';
 import { useConfigStore } from '../../store/useConfigStore';
@@ -64,7 +64,7 @@ function ShortsFeedShimmer({ width, height }: { width: number; height: number })
   );
 }
 
-export function ShortsFeed({ startVideoId, onVideoStarted, onBack }: { startVideoId?: string | null; onVideoStarted?: () => void; onBack?: () => void } = {}) {
+export const ShortsFeed = React.memo(function ShortsFeed({ startVideoId, onVideoStarted, isFocused = true }: { startVideoId?: string | null; onVideoStarted?: () => void; isFocused?: boolean } = {}) {
   const insets = useSafeAreaInsets();
   const { isAdPlaying, setAdPlaying, canWatchAd, incrementAdCount, updateBalance, trackEvent } = useAppStore(useShallow(s => ({ isAdPlaying: s.isAdPlaying, setAdPlaying: s.setAdPlaying, canWatchAd: s.canWatchAd, incrementAdCount: s.incrementAdCount, updateBalance: s.updateBalance, trackEvent: s.trackEvent })));
   
@@ -108,6 +108,10 @@ export function ShortsFeed({ startVideoId, onVideoStarted, onBack }: { startVide
 
   const flatListRef = useRef<FlatList<ShortData>>(null);
   const prevActiveRef = useRef(0);
+  // Keyed by item id so ShortsFeed can command a specific ShortItem's WebView
+  // directly (pauseAndMute) the instant the active index changes, instead of
+  // waiting for a prop change to flow through that item's own re-render.
+  const itemHandlesRef = useRef<Map<string, ShortItemHandle>>(new Map());
   const isScrollingRef = useRef(false);
   const interstitialRef = useRef<RewardedInterstitialAd | null>(null);
   const nextAdTargetRef = useRef<'INTERSTITIAL' | 'REWARDED'>('INTERSTITIAL');
@@ -155,6 +159,23 @@ export function ShortsFeed({ startVideoId, onVideoStarted, onBack }: { startVide
         coins: 0,
         type: 'NORMAL'
       }));
+
+      // Register every fetched video as "seen" immediately, not just ones the
+      // user actually scrolls to — seenVideoIds is what becomes excludeIds
+      // on the *next* page fetch. It used to only grow as videos were
+      // watched, so a video still sitting unwatched further down the current
+      // batch wasn't excluded yet and could come back in the next batch,
+      // producing a duplicate id in `items` — React's "two children with the
+      // same key" error, and the duplicate WebView instance that comes with it.
+      // Also drop anything already in the list as a second guard, in case a
+      // duplicate slips through for some other reason (e.g. the backend's
+      // YouTube-API fallback path serving the same video across two calls).
+      const existingIds = new Set(items.map((i) => i.id));
+      fetchedItems = fetchedItems.filter((item) => {
+        if (existingIds.has(item.id)) return false;
+        seenVideoIds.current.add(item.id);
+        return true;
+      });
 
       // Ad Injection
       if (fetchedItems.length > 0) {
@@ -227,6 +248,25 @@ export function ShortsFeed({ startVideoId, onVideoStarted, onBack }: { startVide
       }
     }
   };
+
+  // Handles a startVideoId arriving *after* the initial load — e.g. the user
+  // opens Home's "watch this video" a second time while this feed is still
+  // mounted from an earlier visit (it stays mounted across tab switches now,
+  // so the mount-time loadData() path below only fires once, on first visit).
+  const prevStartVideoIdRef = useRef(startVideoId);
+  useEffect(() => {
+    if (!startVideoId || startVideoId === prevStartVideoIdRef.current || isLoading) return;
+    prevStartVideoIdRef.current = startVideoId;
+    const idx = items.findIndex((item) => item.id === startVideoId || item.id?.toString() === startVideoId);
+    if (idx >= 0) {
+      setTimeout(() => {
+        flatListRef.current?.scrollToIndex({ index: idx, animated: false });
+        onVideoStarted?.();
+      }, 300);
+    } else {
+      onVideoStarted?.();
+    }
+  }, [startVideoId, items, isLoading, onVideoStarted]);
 
   useEffect(() => {
     loadData();
@@ -451,6 +491,16 @@ export function ShortsFeed({ startVideoId, onVideoStarted, onBack }: { startVide
     if (viewableItems.length > 0 && viewableItems[0].index !== null) {
       const index = viewableItems[0].index;
       if (index !== prevActiveRef.current) {
+        // Mute+pause the outgoing video directly via its imperative handle,
+        // right here, before anything else — don't wait for the prop-driven
+        // effect on that item to catch up. If the newly-active item's WebView
+        // is a cold mount (expensive), it can hog the JS thread long enough
+        // that the outgoing item's own effect is delayed, and its audio kept
+        // playing the whole time. This call doesn't depend on a re-render.
+        const outgoingItem = items[prevActiveRef.current];
+        if (outgoingItem) {
+          itemHandlesRef.current.get(outgoingItem.id)?.pauseAndMute();
+        }
         triggerHaptic('selection', 'haptics_navigation');
         trackEvent('SHORTS_WATCHED', 1);
         prevActiveRef.current = index;
@@ -483,9 +533,29 @@ export function ShortsFeed({ startVideoId, onVideoStarted, onBack }: { startVide
   }), [feedHeight]);
 
   const renderItem = useCallback(({ item, index }: { item: ShortData; index: number }) => {
-    const isActive = index === activeIndex;
-    const isPreload = !isActive && Math.abs(index - activeIndex) <= 1;
-    
+    // Screen keeps its FlatList/scroll position mounted when the user switches
+    // tabs (avoids a full reload on return), but gating isActive/isPreload on
+    // isFocused unmounts every item's WebView while backgrounded so no video
+    // keeps decoding/playing audio behind another tab.
+    const isActive = isFocused && index === activeIndex;
+    // isPreload mounts a REAL YouTube iframe WebView (DNS/TLS connect, the
+    // iframe API script, the embedded player's own DOM) — that's expensive
+    // to create, not just to stream. Mounting 5+ of these concurrently (an
+    // earlier version of this code did) was the actual cause of multi-second
+    // "VirtualizedList slow to update" stalls in production — the mounting
+    // cost compounds with each extra preload slot faster than the buffering
+    // benefit grows. 1 behind + 2 ahead is the practical ceiling: enough
+    // lead time to matter, without overloading the JS thread.
+    const distance = index - activeIndex;
+    const isPreload = isFocused && !isActive && distance >= -1 && distance <= 2;
+    // Only the immediate next video (distance 1) is left muted+PLAYING to
+    // actively buffer; distance 2 sits mounted-but-paused at the start —
+    // ready to take over as "immediate next" without a cold mount once
+    // distance 1 is watched, but not burning bandwidth/battery until then,
+    // and not drifting away from position 0 while it waits (see ShortItem's
+    // playback effect for why that drift matters).
+    const preloadAhead = isPreload && distance === 1;
+
     return (
       <ShatterWrapper
         isShattered={shatteringAdId === item.id}
@@ -499,9 +569,14 @@ export function ShortsFeed({ startVideoId, onVideoStarted, onBack }: { startVide
       >
         <View style={{ width: windowWidth, height: feedHeight }}>
           <ShortItem
+            ref={(handle) => {
+              if (handle) itemHandlesRef.current.set(item.id, handle);
+              else itemHandlesRef.current.delete(item.id);
+            }}
             data={item}
             isActive={isActive}
             isPreload={isPreload}
+            preloadAhead={preloadAhead}
             playerHeight={feedHeight}
             playerWidth={windowWidth}
           />
@@ -530,7 +605,7 @@ export function ShortsFeed({ startVideoId, onVideoStarted, onBack }: { startVide
         </View>
       </ShatterWrapper>
     );
-  }, [activeIndex, feedHeight, uiLocked, isAdPlaying]);
+  }, [activeIndex, feedHeight, uiLocked, isAdPlaying, isFocused]);
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
@@ -553,13 +628,25 @@ export function ShortsFeed({ startVideoId, onVideoStarted, onBack }: { startVide
             data={items}
             renderItem={renderItem}
             keyExtractor={(item) => item.id}
-            extraData={`${activeIndex}_${uiLocked}_${items[activeIndex]?.type}`}
+            extraData={`${activeIndex}_${uiLocked}_${items[activeIndex]?.type}_${isFocused}`}
             scrollEnabled={items[activeIndex]?.type !== 'REWARDED_INTERSTITIAL_TRIGGER'}
             pagingEnabled
             showsVerticalScrollIndicator={false}
             onViewableItemsChanged={onViewableItemsChanged}
             viewabilityConfig={viewabilityConfig}
-            onScrollBeginDrag={() => { isScrollingRef.current = true; }}
+            onScrollBeginDrag={() => {
+              isScrollingRef.current = true;
+              // Silence the currently-active video the instant a drag
+              // starts, rather than waiting for onViewableItemsChanged to
+              // decide a new video is active — during a fast multi-page
+              // fling that can take a while to fire (or only fire once,
+              // for the final settled page), which is why the old video
+              // kept audibly playing for the whole gesture. Whatever the
+              // user lands on gets unmuted/resumed normally once the scroll
+              // settles and activeIndex updates.
+              const current = items[activeIndex];
+              if (current) itemHandlesRef.current.get(current.id)?.pauseAndMute();
+            }}
             onMomentumScrollEnd={onMomentumScrollEnd}
             initialNumToRender={5}
             windowSize={7}
@@ -572,30 +659,9 @@ export function ShortsFeed({ startVideoId, onVideoStarted, onBack }: { startVide
         )}
       </View>
       <CoinRain visible={coinRain.visible} amount={coinRain.amount} onComplete={() => setCoinRain({ visible: false, amount: 0 })} />
-      {onBack && (
-        <TouchableOpacity
-          style={{
-            position: 'absolute',
-            top: Math.max(insets.top, 40) + 10,
-            left: 16,
-            width: 40,
-            height: 40,
-            borderRadius: 20,
-            backgroundColor: 'rgba(0,0,0,0.5)',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 100
-          }}
-          onPress={onBack}
-          accessibilityRole="button"
-          accessibilityLabel="Back"
-        >
-          <Text style={{ color: 'white', fontSize: 24, fontWeight: 'bold' }}>{'<'}</Text>
-        </TouchableOpacity>
-      )}
     </View>
   );
-}
+});
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#000' },

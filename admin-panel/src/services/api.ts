@@ -156,3 +156,19 @@ export const createRouletteItem = (data: any) => api.post('/admin/roulette', dat
 export const updateRouletteItem = (id: number, data: any) => api.put(`/admin/roulette/${id}`, data);
 export const deleteRouletteItem = (id: number) => api.delete(`/admin/roulette/${id}`);
 export const getRouletteAnalytics = () => api.get('/admin/roulette/analytics');
+
+// Affiliate marketplace
+export const getAffiliateProducts = () => api.get('/admin/affiliate/products');
+export const createAffiliateProduct = (data: any) => api.post('/admin/affiliate/products', data);
+export const updateAffiliateProduct = (id: number, data: any) => api.put(`/admin/affiliate/products/${id}`, data);
+export const deleteAffiliateProduct = (id: number) => api.delete(`/admin/affiliate/products/${id}`);
+
+export const getAffiliateBanners = () => api.get('/admin/affiliate/banners');
+export const createAffiliateBanner = (data: any) => api.post('/admin/affiliate/banners', data);
+export const updateAffiliateBanner = (id: number, data: any) => api.put(`/admin/affiliate/banners/${id}`, data);
+export const deleteAffiliateBanner = (id: number) => api.delete(`/admin/affiliate/banners/${id}`);
+
+export const getAffiliatePurchases = (params?: { status?: string; userId?: number }) =>
+  api.get('/admin/affiliate/purchases', { params });
+export const updateAffiliatePurchase = (id: number, data: any) => api.put(`/admin/affiliate/purchases/${id}`, data);
+export const creditAffiliatePurchase = (id: number) => api.post(`/admin/affiliate/purchases/${id}/credit`);

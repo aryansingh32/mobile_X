@@ -222,7 +222,7 @@ const styles = StyleSheet.create({
     bottom: 0,
     left: 0,
     right: 0,
-    top: '60%',
+    top: Math.round(CARD_HEIGHT * 0.6), // was '60%' — New Arch requires numeric, not string
     backgroundColor: 'rgba(0,0,0,0.55)',
   },
   playOverlay: {

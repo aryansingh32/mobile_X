@@ -1,13 +1,14 @@
 import { StatusBar } from 'expo-status-bar';
 import { AppState, BackHandler, StyleSheet, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import mobileAds, { MaxAdContentRating } from 'react-native-google-mobile-ads';
 import { requestTrackingPermissionsAsync } from 'expo-tracking-transparency';
 import { isRealDevice } from './src/utils/deviceSafety';
 import { useAppStore } from './src/store/useAppStore';
 import SplashScreen from './src/screens/SplashScreen';
 import { RemoteConfigProvider } from './src/providers/RemoteConfigProvider';
+import { ScreenFocusProvider } from './src/providers/ScreenFocusContext';
 import { useAdPlacement, isAdPenalized } from './src/hooks/useAdPlacement';
 import { AppOpenAd, InterstitialAd, AdEventType, TestIds } from 'react-native-google-mobile-ads';
 import { reportAdEvent } from './src/api/config';
@@ -43,18 +44,30 @@ import { fetchPublicStatus } from './src/api/config';
 
 type OverlayScreen = ProfileDestination | 'profile';
 
+const TAB_IDS: TabId[] = ['home', 'discover', 'hot', 'rewards', 'wallet'];
+
 function MainApp() {
   const [activeTab, setActiveTab] = useState<TabId>('home');
+  // Tabs are lazy-mounted on first visit, then kept mounted forever and just
+  // hidden (display:none) on subsequent switches — switching tabs used to
+  // fully unmount/remount the screen (losing scroll position, local UI
+  // state, and re-running every mount-time fetch/shimmer), which is what
+  // made navigating between tabs feel like a full page reload each time.
+  const [mountedTabs, setMountedTabs] = useState<Set<TabId>>(() => new Set(['home']));
   const [showGames, setShowGames] = useState(false);
   const [showDailyMissions, setShowDailyMissions] = useState(false);
   const [overlayStack, setOverlayStack] = useState<OverlayScreen[]>([]);
   const [shortsStartVideoId, setShortsStartVideoId] = useState<string | null>(null);
-  const pushOverlay = (screen: OverlayScreen) => setOverlayStack((s) => [...s, screen]);
-  const popOverlay = () => setOverlayStack((s) => s.slice(0, -1));
+  const pushOverlay = useCallback((screen: OverlayScreen) => setOverlayStack((s) => [...s, screen]), []);
+  const popOverlay = useCallback(() => setOverlayStack((s) => s.slice(0, -1)), []);
   const currentOverlay = overlayStack.length ? overlayStack[overlayStack.length - 1] : null;
   const { isAdPlaying, setAdPlaying, canWatchAd } = useAppStore();
   const homeScreenRef = useRef<HomeScreenHandle>(null);
   const gamesScreenRef = useRef<GamesScreenHandle>(null);
+
+  useEffect(() => {
+    setMountedTabs((prev) => (prev.has(activeTab) ? prev : new Set(prev).add(activeTab)));
+  }, [activeTab]);
 
   useTelemetry(); // Initialize background telemetry and screentime heartbeat
 
@@ -119,7 +132,7 @@ function MainApp() {
   const preloadedAppOpenAdRef = useRef<AppOpenAd | null>(null);
   const preloadedAppOpenReadyRef = useRef(false);
 
-  const preloadNavAd = () => {
+  const preloadNavAd = useCallback(() => {
     if (!navInterstitialUnitId) return;
     preloadedNavReadyRef.current = false;
     const ad = InterstitialAd.createForAdRequest(navInterstitialUnitId, {
@@ -131,9 +144,9 @@ function MainApp() {
       unsub();
     });
     ad.load();
-  };
+  }, [navInterstitialUnitId]);
 
-  const preloadWalletAd = () => {
+  const preloadWalletAd = useCallback(() => {
     if (!walletAdUnitId) return;
     preloadedWalletReadyRef.current = false;
     const ad = InterstitialAd.createForAdRequest(walletAdUnitId, {
@@ -145,13 +158,13 @@ function MainApp() {
       unsub();
     });
     ad.load();
-  };
+  }, [walletAdUnitId]);
 
   useEffect(() => {
     if (navInterstitialUnitId) preloadNavAd();
-  }, [navInterstitialUnitId]);
+  }, [navInterstitialUnitId, preloadNavAd]);
 
-  const preloadAppOpenAd = () => {
+  const preloadAppOpenAd = useCallback(() => {
     if (!appOpenUnitId) return;
     preloadedAppOpenReadyRef.current = false;
     const ad = AppOpenAd.createForAdRequest(appOpenUnitId, {
@@ -163,17 +176,17 @@ function MainApp() {
       unsub();
     });
     ad.load();
-  };
-
-  useEffect(() => {
-    if (appOpenUnitId) preloadAppOpenAd();
   }, [appOpenUnitId]);
 
   useEffect(() => {
-    if (walletAdUnitId) preloadWalletAd();
-  }, [walletAdUnitId]);
+    if (appOpenUnitId) preloadAppOpenAd();
+  }, [appOpenUnitId, preloadAppOpenAd]);
 
-  const handleTabChange = (tab: TabId) => {
+  useEffect(() => {
+    if (walletAdUnitId) preloadWalletAd();
+  }, [walletAdUnitId, preloadWalletAd]);
+
+  const handleTabChange = useCallback((tab: TabId) => {
     if (tab === activeTab) return;
     
     actionsSinceAd.current += 1;
@@ -317,7 +330,21 @@ function MainApp() {
     } else {
       setActiveTab(tab);
     }
-  };
+  }, [
+    activeTab,
+    walletAdUnitId,
+    canWatchAd,
+    isAdPlaying,
+    canShowWallet,
+    setAdPlaying,
+    recordWalletShown,
+    preloadWalletAd,
+    navAdsEnabled,
+    navInterstitialUnitId,
+    canShow,
+    recordShown,
+    preloadNavAd,
+  ]);
 
   useEffect(() => {
     const initializeAds = async () => {
@@ -449,11 +476,82 @@ function MainApp() {
     };
   }, [activeTab]);
 
-  const renderScreen = () => {
+  const chromeHidden = showGames || !!currentOverlay || showDailyMissions;
+
+  // Stable identities: HomeScreen/ShortsFeed are React.memo'd so their prop
+  // callbacks must not change reference every MainApp render (which now
+  // happens for every mounted tab, since tabs stay mounted forever) — an
+  // inline arrow prop would defeat the memo and reconcile the whole
+  // (possibly off-screen) tab tree on every unrelated state change.
+  const handleOpenGames = useCallback(() => setShowGames(true), []);
+  const handleOpenProfile = useCallback(() => pushOverlay('profile'), [pushOverlay]);
+  const handleOpenNotifications = useCallback(() => pushOverlay('notifications'), [pushOverlay]);
+  const handleOpenDailyMissions = useCallback(() => setShowDailyMissions(true), []);
+  const handleOpenShortsWithVideo = useCallback((videoId: string) => {
+    setShortsStartVideoId(videoId);
+    handleTabChange('hot');
+  }, [handleTabChange]);
+  const handleShortsVideoStarted = useCallback(() => setShortsStartVideoId(null), []);
+
+  const renderTabContent = useCallback((tab: TabId) => {
+    switch (tab) {
+      case 'home':
+        return (
+          <HomeScreen
+            ref={homeScreenRef}
+            onNavigate={handleTabChange}
+            onOpenGames={handleOpenGames}
+            onOpenProfile={handleOpenProfile}
+            onOpenNotifications={handleOpenNotifications}
+            onOpenDailyMissions={handleOpenDailyMissions}
+            onOpenShortsWithVideo={handleOpenShortsWithVideo}
+          />
+        );
+      case 'discover':
+        return <DiscoverScreen />;
+      case 'hot':
+        return (
+          <ShortsFeed
+            startVideoId={shortsStartVideoId}
+            onVideoStarted={handleShortsVideoStarted}
+            // Kept mounted in the background when another tab is active, so
+            // its video playback must be gated on focus explicitly instead
+            // of relying on unmount to stop it. isAdPlaying matters here too:
+            // a nav-transition interstitial defers the actual setActiveTab
+            // until the ad closes, so activeTab is still 'hot' for the whole
+            // time the ad is on screen — without this check the shorts video
+            // kept playing (audibly) behind the ad the entire time.
+            isFocused={activeTab === 'hot' && !chromeHidden && !isAdPlaying}
+          />
+        );
+      case 'rewards':
+        return <RewardsScreen />;
+      case 'wallet':
+        return <WalletScreen />;
+      default:
+        return null;
+    }
+  }, [
+    handleTabChange,
+    handleOpenGames,
+    handleOpenProfile,
+    handleOpenNotifications,
+    handleOpenDailyMissions,
+    handleOpenShortsWithVideo,
+    shortsStartVideoId,
+    handleShortsVideoStarted,
+    activeTab,
+    chromeHidden,
+    isAdPlaying,
+  ]);
+
+  const renderOverlayContent = () => {
+    if (showDailyMissions) {
+      return <DailyMissionsScreen onBack={() => setShowDailyMissions(false)} />;
+    }
     if (showGames) {
       return <GamesScreen ref={gamesScreenRef} onBack={() => setShowGames(false)} />;
     }
-
     if (currentOverlay) {
       switch (currentOverlay) {
         case 'profile':
@@ -474,46 +572,25 @@ function MainApp() {
           return null;
       }
     }
-
-    switch (activeTab) {
-      case 'home':
-        return (
-          <HomeScreen
-            ref={homeScreenRef}
-            onNavigate={handleTabChange}
-            onOpenGames={() => setShowGames(true)}
-            onOpenProfile={() => pushOverlay('profile')}
-            onOpenNotifications={() => pushOverlay('notifications')}
-            onOpenDailyMissions={() => setShowDailyMissions(true)}
-            onOpenShortsWithVideo={(videoId) => {
-              setShortsStartVideoId(videoId);
-              handleTabChange('hot');
-            }}
-          />
-        );
-      case 'discover':
-        return <DiscoverScreen />;
-      case 'hot':
-        return <ShortsFeed startVideoId={shortsStartVideoId} onVideoStarted={() => setShortsStartVideoId(null)} onBack={() => handleTabChange('home')} />;
-      case 'rewards':
-        return <RewardsScreen />;
-      case 'wallet':
-        return <WalletScreen />;
-      default:
-        return null;
-    }
+    return null;
   };
-
-  const chromeHidden = showGames || !!currentOverlay || showDailyMissions;
 
   return (
     <View style={styles.container}>
       <StatusBar style="light" hidden={false} translucent={true} />
-      {showDailyMissions ? (
-        <DailyMissionsScreen onBack={() => setShowDailyMissions(false)} />
-      ) : (
-        renderScreen()
-      )}
+      <View style={StyleSheet.absoluteFill} pointerEvents={chromeHidden ? 'none' : 'box-none'}>
+        {TAB_IDS.filter((tab) => mountedTabs.has(tab)).map((tab) => (
+          <View
+            key={tab}
+            style={[StyleSheet.absoluteFill, { display: tab === activeTab && !chromeHidden ? 'flex' : 'none' }]}
+          >
+            <ScreenFocusProvider value={tab === activeTab && !chromeHidden}>
+              {renderTabContent(tab)}
+            </ScreenFocusProvider>
+          </View>
+        ))}
+      </View>
+      {chromeHidden ? <View style={StyleSheet.absoluteFill}>{renderOverlayContent()}</View> : null}
       {!chromeHidden ? <BottomNavBar activeTab={activeTab} onTabChange={handleTabChange} /> : null}
       {!chromeHidden ? <TabTooltip tab={activeTab} onDismiss={() => {}} /> : null}
     </View>

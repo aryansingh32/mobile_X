@@ -37,9 +37,9 @@ const AdRewardRules: React.FC = () => {
     try {
       await updateAdRewardRule(adType, updates);
       await fetchRules();
-    } catch (e) {
+    } catch (e: any) {
       console.error(e);
-      alert('Failed to update rule');
+      alert(e.response?.data?.error || 'Failed to update rule');
     }
     setSaving(null);
   };
@@ -83,11 +83,12 @@ const AdRewardRules: React.FC = () => {
                 <div className="flex">
                   <input
                     type="number"
+                    min={0}
                     value={rule.coinsAwarded}
                     onChange={(e) => {
                       const updated = [...rules];
                       const idx = updated.findIndex((r) => r.id === rule.id);
-                      updated[idx].coinsAwarded = parseInt(e.target.value) || 0;
+                      updated[idx].coinsAwarded = Math.max(0, parseInt(e.target.value) || 0);
                       setRules(updated);
                     }}
                     className="w-full bg-[#252525] border border-[#333] rounded-l-lg px-3 py-2 text-white font-mono"
@@ -110,11 +111,12 @@ const AdRewardRules: React.FC = () => {
                 <div className="flex">
                   <input
                     type="number"
+                    min={0}
                     value={rule.dailyCapForType}
                     onChange={(e) => {
                       const updated = [...rules];
                       const idx = updated.findIndex((r) => r.id === rule.id);
-                      updated[idx].dailyCapForType = parseInt(e.target.value) || 0;
+                      updated[idx].dailyCapForType = Math.max(0, parseInt(e.target.value) || 0);
                       setRules(updated);
                     }}
                     className="w-full bg-[#252525] border border-[#333] rounded-l-lg px-3 py-2 text-white font-mono"
@@ -137,11 +139,12 @@ const AdRewardRules: React.FC = () => {
                 <div className="flex">
                   <input
                     type="number"
+                    min={0}
                     value={rule.cooldownSeconds}
                     onChange={(e) => {
                       const updated = [...rules];
                       const idx = updated.findIndex((r) => r.id === rule.id);
-                      updated[idx].cooldownSeconds = parseInt(e.target.value) || 0;
+                      updated[idx].cooldownSeconds = Math.max(0, parseInt(e.target.value) || 0);
                       setRules(updated);
                     }}
                     className="w-full bg-[#252525] border border-[#333] rounded-l-lg px-3 py-2 text-white font-mono"

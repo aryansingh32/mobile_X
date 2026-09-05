@@ -174,7 +174,7 @@ export const GiftBoxBurst: React.FC<GiftBoxBurstProps> = ({ size = 140, onOpened
               { opacity, transform: [{ translateX }, { translateY }, { scale }, { rotate: coin.rotation }] },
             ]}
           >
-            <VIBIcon size={24} />
+            <VIBIcon size={24} animated={false} />
           </Animated.View>
         );
       })}

@@ -24,9 +24,14 @@ import { reportAdEventWithPenaltyCheck, formatAdPenaltyMessage } from '../utils/
 import { getDeviceId } from '../utils/deviceSafety';
 import { fetchCached, invalidateCached } from '../utils/requestCache';
 
-export const WalletScreen = () => {
+export const WalletScreen = React.memo(() => {
   const mountedRef = React.useRef(true);
   React.useEffect(() => { return () => { mountedRef.current = false; } }, []);
+  // One id per redemption modal open, reused for every submit attempt of that
+  // modal (including a stray double-tap that slips past the `submitting`
+  // guard) so the backend can dedupe a duplicate withdrawal request instead
+  // of debiting coins twice. A fresh modal open gets a fresh id.
+  const withdrawalRequestIdRef = React.useRef<string | null>(null);
 
   const {
     coinBalance,
@@ -303,6 +308,11 @@ export const WalletScreen = () => {
     return () => { mounted = false; };
   }, [activeTab]);
 
+  const openRedeemModal = (item: any) => {
+    withdrawalRequestIdRef.current = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    setSelectedItem(item);
+  };
+
   const handleRedeem = async () => {
     const isPhysical = selectedItem?.type === 'PHYSICAL';
     const isVoucher = selectedItem?.type === 'VOUCHER';
@@ -325,6 +335,7 @@ export const WalletScreen = () => {
         color: isPhysical ? color : undefined,
         deliveryAddress: isPhysical ? deliveryAddress.trim() : undefined,
         mobileNumber: isPhysical ? mobileNumber.trim() : undefined,
+        requestId: withdrawalRequestIdRef.current ?? undefined,
       });
       // Balance, catalog stock, and the rewards list are all now stale on
       // the server — invalidate so the next fetch of each isn't served
@@ -458,7 +469,7 @@ export const WalletScreen = () => {
                   const soldOut = Boolean(item.soldOut);
                   const cashValue = (item.coinCost * coinToInrRate).toFixed(2);
                   return (
-                    <TouchableOpacity key={item.id} style={[styles.catalogCard, (!canAfford || soldOut) && styles.catalogCardDisabled]} onPress={() => canAfford && !soldOut && setSelectedItem(item)} activeOpacity={0.85}>
+                    <TouchableOpacity key={item.id} style={[styles.catalogCard, (!canAfford || soldOut) && styles.catalogCardDisabled]} onPress={() => canAfford && !soldOut && openRedeemModal(item)} activeOpacity={0.85}>
                       <View style={styles.itemTypeBadge}>
                         {item.type === 'UPI' ? <IndianRupee size={16} color="#FFF" /> : <Gift size={16} color="#FFF" />}
                       </View>
@@ -503,9 +514,9 @@ export const WalletScreen = () => {
               <Text style={styles.emptyText}>You haven't redeemed anything yet.</Text>
             ) : rewards.map(entry => (
               <View key={entry.id} style={styles.historyCard}>
-                {entry.catalogItem?.imageUrl ? (
+                {entry.catalogCode?.catalogItem?.imageUrl ? (
                   <Image
-                    source={{ uri: entry.catalogItem.imageUrl }}
+                    source={{ uri: entry.catalogCode.catalogItem.imageUrl }}
                     style={{ width: 40, height: 40, borderRadius: 8, marginRight: 12 }}
                     contentFit="cover"
                     cachePolicy="memory-disk"
@@ -518,7 +529,7 @@ export const WalletScreen = () => {
                   </View>
                 )}
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.historySource}>{entry.catalogItem?.name || 'Reward'}</Text>
+                  <Text style={styles.historySource}>{entry.catalogCode?.catalogItem?.name || 'Reward'}</Text>
                   <Text style={styles.historyDate}>{new Date(entry.requestedAt).toLocaleString()}</Text>
                   {entry.status === 'APPROVED' && entry.catalogCode?.code && (
                     <Text style={{ color: '#FFD700', fontSize: 13, marginTop: 4, fontWeight: 'bold' }}>Code: {entry.catalogCode.code}</Text>
@@ -660,7 +671,7 @@ export const WalletScreen = () => {
       />
     </KeyboardAvoidingView>
   );
-};
+});
 
 const XIcon = () => <Text style={{ color: '#FFF', fontSize: 20, fontWeight: '900' }}>×</Text>;
 

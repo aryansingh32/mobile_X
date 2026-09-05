@@ -1,4 +1,4 @@
-import React, { useCallback, useRef, useState, useEffect, useMemo } from 'react';
+import React, { useCallback, useRef, useState, useEffect, useMemo, forwardRef, useImperativeHandle } from 'react';
 import {
   View,
   Text,
@@ -7,6 +7,7 @@ import {
   Animated,
 } from 'react-native';
 import { Image } from 'expo-image';
+import { LinearGradient } from 'expo-linear-gradient';
 import { WebView } from 'react-native-webview';
 import {
   Heart,
@@ -15,20 +16,24 @@ import {
   Music2,
 } from 'lucide-react-native';
 import { triggerHaptic } from '../../utils/haptics';
-import { claimShortReward } from '../../api/rewards';
 import { VIBIcon } from '../ui/VIBIcon';
-
 
 // ── Configuration Constants ──────────────────────────────────────────────
 // Set to true to show username, avatar, caption, sound UI
 const SHOW_AUTHOR_INFO = false;
-// Seconds of active watch time before the Short session is tracked for analytics.
-const COIN_REWARD_WATCH_SECONDS = 8;
 // Fraction of player height left clear above/below the tap-gesture zone so the
 // native YouTube title/watermark (top) and progress-bar/controls (bottom)
 // stay reachable — required by YouTube API TOS (controls must not be obscured).
 const GESTURE_ZONE_TOP_INSET = 0.12;
 const GESTURE_ZONE_BOTTOM_INSET = 0.22;
+// Gives each video a "card" feel instead of an edge-to-edge rectangle: a
+// sliver of the screen's own black background shows above the video, whose
+// top corners are rounded into it, with a soft dark gradient easing the seam
+// — a hint that there's a boundary here (like the next card peeking on the
+// Discover feed) without literally revealing the next video underneath it,
+// which would spoil it. TO ADJUST: tweak these two.
+const CARD_TOP_INSET = 12;
+const CARD_RADIUS = 24;
 
 // ── Types ────────────────────────────────────────────────────────────────
 export interface ShortData {
@@ -47,8 +52,25 @@ interface ShortItemProps {
   data: ShortData;
   isActive: boolean;
   isPreload: boolean;
+  // Only meaningful when isPreload is true: whether this item is the
+  // immediate upcoming (not-yet-watched) neighbor vs. anything further out.
+  // See the playback effect below for why this distinction matters.
+  preloadAhead: boolean;
   playerHeight: number;
   playerWidth: number;
+}
+
+export interface ShortItemHandle {
+  // Imperative, synchronous-as-possible mute+pause — called directly by
+  // ShortsFeed the instant the active index changes, instead of waiting for
+  // this component's own isActive prop to flow through a re-render and its
+  // effect to fire. That extra hop is where audio bleed was slipping through:
+  // if mounting the newly-active item's WebView is itself expensive (a cold
+  // iframe boot), it can delay the JS thread long enough that the outgoing
+  // item's own prop-driven mute effect doesn't run until well after the
+  // swipe, during which its audio keeps playing. Calling this straight from
+  // the scroll handler skips that queue.
+  pauseAndMute: () => void;
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────
@@ -117,42 +139,76 @@ const shimmerStyles = StyleSheet.create({
 });
 
 // ── ShortItem ────────────────────────────────────────────────────────────
-export const ShortItem = React.memo(function ShortItem({
+export const ShortItem = React.memo(forwardRef<ShortItemHandle, ShortItemProps>(function ShortItem({
   data,
   isActive,
   isPreload,
+  preloadAhead,
   playerHeight,
   playerWidth,
-}: ShortItemProps) {
+}, ref) {
   const shouldRenderWebView = (isActive || isPreload) && (!data.type || data.type === 'NORMAL');
 
   // ── State ────────────────────────────────────────────────────────────
   const [playing, setPlaying] = useState(true);
   const [liked, setLiked] = useState(false);
   const [showLikeBurst, setShowLikeBurst] = useState(false);
+  // `ready` fires when YouTube's player API has finished initializing —
+  // it does NOT mean a video frame has actually painted yet; the media
+  // itself can still take a moment to buffer after that. Hiding the shimmer
+  // on `ready` left a real gap (shimmer gone, nothing painted yet → black
+  // screen) between API-ready and the first visible frame. `hasPlayed`
+  // tracks the stronger signal — the player actually reporting PLAYING —
+  // and is what the shimmer is gated on below.
   const [ready, setReady] = useState(false);
-
-  const [coinRewarded, setCoinRewarded] = useState(false);
+  const [hasPlayed, setHasPlayed] = useState(false);
 
   // ── Refs ─────────────────────────────────────────────────────────────
   const webviewRef = useRef<WebView>(null);
   const tapTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const watchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Animated values
   const likeScale = useRef(new Animated.Value(0)).current;
   const likeOpacity = useRef(new Animated.Value(0)).current;
 
+  useImperativeHandle(ref, () => ({
+    pauseAndMute: () => {
+      setPlaying(false);
+      webviewRef.current?.injectJavaScript(`
+        if (player) {
+          if (player.mute) player.mute();
+          if (player.pauseVideo) player.pauseVideo();
+        }
+        true;
+      `);
+    },
+  }), []);
+
   // ── Effects ──────────────────────────────────────────────────────────
 
-  // Reset `ready` when WebView unmounts (item leaves ±1 range)
+  // Reset when WebView unmounts (item leaves preload range)
   useEffect(() => {
     if (!shouldRenderWebView) {
       setReady(false);
+      setHasPlayed(false);
     }
   }, [shouldRenderWebView]);
 
-  // Consolidated playback state management
+  // Consolidated playback state management.
+  //
+  // Three states, not two:
+  //  - active: seek to 0, unmute, play — the video the user is watching.
+  //  - preload-ahead (the next, not-yet-watched neighbor): muted + playing,
+  //    so it's already buffered by the time the user swipes to it — this is
+  //    what makes the forward swipe feel instant instead of showing a loading
+  //    spinner on every video.
+  //  - everything else (the previous video just swiped away from, or any
+  //    other non-active slot): muted + PAUSED, not muted-and-still-playing.
+  //    A paused video categorically cannot leak audio, whereas relying on a
+  //    mute() JS-bridge call alone left a window where the outgoing video's
+  //    audio was still audible while the new one was loading in front of it.
+  //    This costs nothing on re-activation since becoming active always
+  //    seeks to 0 first anyway (every visit replays from the start).
   useEffect(() => {
     if (!ready) return;
 
@@ -166,8 +222,7 @@ export const ShortItem = React.memo(function ShortItem({
         true;
       `);
       setPlaying(true);
-    } else {
-      // Preloading or out-of-range: keep muted, let autoplay buffer
+    } else if (preloadAhead) {
       webviewRef.current?.injectJavaScript(`
         if (player) {
           if (player.mute) player.mute();
@@ -176,44 +231,19 @@ export const ShortItem = React.memo(function ShortItem({
         true;
       `);
       setPlaying(false);
-    }
-  }, [isActive, ready]);
-
-  // Track one analytics session per video watch.
-  useEffect(() => {
-    if (isActive && !coinRewarded) {
-      watchTimerRef.current = setTimeout(() => {
-        triggerCoinReward();
-      }, COIN_REWARD_WATCH_SECONDS * 1000);
     } else {
-      if (watchTimerRef.current) {
-        clearTimeout(watchTimerRef.current);
-        watchTimerRef.current = null;
-      }
+      webviewRef.current?.injectJavaScript(`
+        if (player) {
+          if (player.mute) player.mute();
+          if (player.pauseVideo) player.pauseVideo();
+        }
+        true;
+      `);
+      setPlaying(false);
     }
-    return () => {
-      if (watchTimerRef.current) clearTimeout(watchTimerRef.current);
-    };
-  }, [isActive, coinRewarded]);
-
-  // Reset coin reward when video ID changes (slot recycled)
-  useEffect(() => {
-    setCoinRewarded(false);
-  }, [data.id]);
+  }, [isActive, preloadAhead, ready]);
 
   // ── Handlers ─────────────────────────────────────────────────────────
-
-  const triggerCoinReward = useCallback(async () => {
-    setCoinRewarded(true);
-    try {
-      // Track session for analytics only — coins come from ads, not content watching (Option A)
-      const sessionId = `short-${data.id}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-      await claimShortReward(data.id, COIN_REWARD_WATCH_SECONDS, sessionId);
-      // No coin update — backend returns 0 coins for short watches
-    } catch {
-      // Silently fail — short session tracking is non-critical
-    }
-  }, [data.id]);
 
   const togglePlay = useCallback(() => {
     triggerHaptic('impact-light');
@@ -236,6 +266,12 @@ export const ShortItem = React.memo(function ShortItem({
         // YT.PlayerState: ENDED=0, PLAYING=1, PAUSED=2
         if (msg.state === 1) {
           setPlaying(true);
+          // First real signal that a frame is actually on screen — set once
+          // and never cleared while this WebView is alive, whether this fires
+          // while active or while preload-buffering muted in the background
+          // (a video promoted from preload straight to active already has
+          // frames rendered, so it correctly skips the shimmer entirely).
+          setHasPlayed(true);
           if (isActive) {
             webviewRef.current?.injectJavaScript(`
               if (player) {
@@ -311,13 +347,22 @@ export const ShortItem = React.memo(function ShortItem({
             overflow: hidden;
             background: #000;
           }
-          /* Full-bleed cover: scale 16:9 iframe to fill 100vh, crop sides */
-          /* TO ADJUST HEIGHT/WIDTH:
-             Change width to 100vw and height to calc(100vw * 9 / 16) if you want to see the whole video without cropping. */
+          /* Full-bleed cover for a vertical (9:16) Short: most phone screens
+             are proportionally TALLER than 9:16 (e.g. 19.5:9), so sizing this
+             box to exactly 100vw x 100vh — a non-9:16 shape — made YouTube's
+             player letterbox the video to preserve its real aspect ratio,
+             leaving a black gap below it. Instead size the box to the actual
+             9:16 shape, tall enough to fill 100vh, and let it overflow
+             horizontally — #player-container's overflow:hidden crops the
+             (small, ~10%) excess on the sides instead of leaving a vertical
+             gap. This is the same "cover" trick as CSS background-size:cover.
+             TO ADJUST: change 9/16 below to whatever the source video's
+             actual aspect ratio is, or to 100vw/calc(100vw*16/9) (no crop,
+             letterboxed) if you'd rather see the whole frame than crop it. */
           #player {
             position: absolute;
-            width: 100vw;
             height: 100vh;
+            width: calc(100vh * 9 / 16);
             top: 0;
             left: 50%;
             transform: translateX(-50%);
@@ -430,7 +475,13 @@ export const ShortItem = React.memo(function ShortItem({
   return (
     <View style={[styles.container, { width: playerWidth, height: playerHeight }]}>
       {/* ── Layer 0: Video content ─────────────────────────────────── */}
-      <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
+      <View
+        style={[
+          StyleSheet.absoluteFill,
+          { top: CARD_TOP_INSET, borderTopLeftRadius: CARD_RADIUS, borderTopRightRadius: CARD_RADIUS, overflow: 'hidden' },
+        ]}
+        pointerEvents="box-none"
+      >
         {shouldRenderWebView ? (
           <>
             <WebView
@@ -449,13 +500,16 @@ export const ShortItem = React.memo(function ShortItem({
               cacheMode="LOAD_DEFAULT"
               androidLayerType="hardware"
               renderToHardwareTextureAndroid
-              decelerationRate="normal"
               domStorageEnabled
               startInLoadingState={false}
               overScrollMode="never"
             />
-            {/* Shimmer overlay while WebView cold-loads (active item only) */}
-            {(isActive || isPreload) && !ready && (
+            {/* Shimmer overlay while the WebView cold-loads. Gated on
+                hasPlayed rather than ready: `ready` only means the player API
+                finished initializing, not that a frame has actually painted
+                — hiding the shimmer that early left a black-screen gap while
+                the video was still buffering its first frame. */}
+            {(isActive || isPreload) && !hasPlayed && (
               <View style={StyleSheet.absoluteFill}>
                 <ShimmerThumbnail videoId={data.id} />
               </View>
@@ -471,6 +525,14 @@ export const ShortItem = React.memo(function ShortItem({
             transition={150}
           />
         )}
+        {/* Soft dark seam at the card's top edge — reads as a rounded card
+            boundary rather than a hard cut, echoing Discover's card styling
+            without revealing anything about the next video. */}
+        <LinearGradient
+          colors={['rgba(0,0,0,0.5)', 'rgba(0,0,0,0)']}
+          style={styles.cardTopSeam}
+          pointerEvents="none"
+        />
       </View>
 
       {/* ── Layer 1: Gesture interceptor ──────────── */}
@@ -546,13 +608,21 @@ export const ShortItem = React.memo(function ShortItem({
       )}
     </View>
   );
-});
+}));
 
 // ── Styles ─────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
   container: {
     backgroundColor: '#000',
     overflow: 'hidden',
+  },
+
+  cardTopSeam: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 56,
   },
 
   // Gesture zone covers top 80% of screen; bottom 20% passes through to WebView
@@ -564,9 +634,14 @@ const styles = StyleSheet.create({
     zIndex: 2,
   },
 
-  // Pause overlay
+  // Pause overlay — top offset matches CARD_TOP_INSET so the icon centers on
+  // the actual visible video area, not the full (slightly taller) container.
   pausedOverlay: {
-    ...StyleSheet.absoluteFillObject,
+    position: 'absolute',
+    top: CARD_TOP_INSET,
+    left: 0,
+    right: 0,
+    bottom: 0,
     alignItems: 'center',
     justifyContent: 'center',
     zIndex: 3,
@@ -581,35 +656,19 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
 
-  // Like burst
+  // Like burst — centered using absoluteFillObject + flex centering instead of top/left '50%'
+  // (New Architecture/Fabric requires numeric values for layout props on absolute elements)
   likeBurst: {
     position: 'absolute',
-    top: '50%',
-    left: '50%',
-    marginTop: -60,
-    marginLeft: -60,
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
     zIndex: 4,
   },
 
-  // Coin reward toast — top-right, above right rail
-  coinToast: {
-    position: 'absolute',
-    top: '35%',
-    right: 16,
-    backgroundColor: 'rgba(0,0,0,0.75)',
-    borderRadius: 20,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    zIndex: 20,
-    borderWidth: 1,
-    borderColor: 'rgba(255,200,0,0.6)',
-  },
-  coinToastText: {
-    color: '#FFD700',
-    fontSize: 18,
-    fontWeight: '800',
-    letterSpacing: 0.5,
-  },
 
   // Right action rail — moved up to clear YT controls at bottom
   // TO SHIFT RIGHT RAIL: Adjust 'bottom' or 'right' values below
@@ -682,8 +741,7 @@ const styles = StyleSheet.create({
   plusIcon: {
     position: 'absolute',
     bottom: -4,
-    left: '50%',
-    marginLeft: -10,
+    left: 12, // avatar width 44px / 2 − badge width 20px / 2 = 12 (replaces left:'50%' + marginLeft:-10)
     width: 20,
     height: 20,
     borderRadius: 10,

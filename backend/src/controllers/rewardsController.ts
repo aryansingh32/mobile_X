@@ -1,4 +1,5 @@
 import { Response } from 'express';
+import { Prisma } from '@prisma/client';
 import crypto from 'crypto';
 import https from 'https';
 import prisma from '../config/db';
@@ -225,27 +226,7 @@ export const claimShortReward = async (req: AuthRequest, res: Response): Promise
       return;
     }
 
-    const cooldownStart = new Date(Date.now() - 24 * 60 * 60 * 1000);
-    const recentClaim = await prisma.shortsSessions.findFirst({
-      where: { userId, videoId: String(videoId), timestamp: { gte: cooldownStart } },
-      select: { id: true },
-    });
-    if (recentClaim) {
-      res.json({ message: 'Already rewarded for this video today', coinsEarned: 0 });
-      return;
-    }
-
     const shortDailyCap = await getConfigInt('short_daily_cap', 50);
-    const todayStart = new Date();
-    todayStart.setHours(0, 0, 0, 0);
-    const shortsWatchedToday = await prisma.coinLedger.count({
-      where: { userId, source: 'SHORT_WATCH', timestamp: { gte: todayStart } },
-    });
-    
-    if (shortsWatchedToday >= shortDailyCap) {
-      res.json({ message: 'Daily limit reached for short videos', coinsEarned: 0 });
-      return;
-    }
 
     // Get reward amount from config
     const rewardConfig = await prisma.appConfig.findUnique({
@@ -273,26 +254,65 @@ export const claimShortReward = async (req: AuthRequest, res: Response): Promise
     // The client provides a sessionId which MUST be used as the idempotency key to prevent replays
     const rewardSessionId = crypto.createHash('sha256').update(String(sessionId)).digest('hex');
 
-    if (rewardCoins > 0) {
-      // Server-derived key prevents parallel or replayed claims for the same video/day.
-      try {
-        await addLedgerEntry(userId, rewardCoins, 'SHORT_WATCH', clientIp, rewardSessionId, deviceId);
-      } catch (e: any) {
-        if (e.code === 'P2002') {
-          // Duplicate idempotency key — already claimed
-          res.json({ message: 'Already claimed', coinsEarned: 0 });
+    // The per-video 24h dedupe and the daily-cap check both used to be plain
+    // reads performed before this write, with nothing tying them together —
+    // concurrent requests (distinct client-supplied sessionIds, so each gets
+    // its own ledger idempotency key) could all read "not claimed yet" before
+    // any of them had written a ShortsSessions row, then all independently
+    // credit SHORT_WATCH coins for the same video. Serializable isolation
+    // makes Postgres itself detect that read/write overlap and abort every
+    // transaction but one, so only a single claim for this video/day can
+    // ever commit — no unique constraint needed.
+    let result: { message: string; coinsEarned: number } | null = null;
+    try {
+      await prisma.$transaction(async (tx) => {
+        const cooldownStart = new Date(Date.now() - 24 * 60 * 60 * 1000);
+        const recentClaim = await tx.shortsSessions.findFirst({
+          where: { userId, videoId: String(videoId), timestamp: { gte: cooldownStart } },
+          select: { id: true },
+        });
+        if (recentClaim) {
+          result = { message: 'Already rewarded for this video today', coinsEarned: 0 };
           return;
         }
-        throw e;
+
+        const todayStart = new Date();
+        todayStart.setHours(0, 0, 0, 0);
+        const shortsWatchedToday = await tx.coinLedger.count({
+          where: { userId, source: 'SHORT_WATCH', timestamp: { gte: todayStart } },
+        });
+        if (shortsWatchedToday >= shortDailyCap) {
+          result = { message: 'Daily limit reached for short videos', coinsEarned: 0 };
+          return;
+        }
+
+        if (rewardCoins > 0) {
+          await addLedgerEntry(userId, rewardCoins, 'SHORT_WATCH', clientIp, rewardSessionId, deviceId, tx);
+        }
+
+        await tx.shortsSessions.create({
+          data: { userId, videoId: String(videoId), watchSeconds: Math.floor(parsedWatchSeconds), coinsEarned: rewardCoins },
+        });
+
+        result = { message: rewardCoins > 0 ? 'Reward claimed' : 'Session tracked', coinsEarned: rewardCoins };
+      }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    } catch (e: any) {
+      if (e.code === 'P2002') {
+        // Duplicate idempotency key — already claimed
+        res.json({ message: 'Already claimed', coinsEarned: 0 });
+        return;
       }
+      if (e.code === 'P2034') {
+        // Serializable transaction conflict — a concurrent claim for this
+        // same video/day won the race; this one loses cleanly instead of
+        // both committing.
+        res.json({ message: 'Already rewarded for this video today', coinsEarned: 0 });
+        return;
+      }
+      throw e;
     }
 
-    // Log the session
-    await prisma.shortsSessions.create({
-      data: { userId, videoId: String(videoId), watchSeconds: Math.floor(parsedWatchSeconds), coinsEarned: rewardCoins },
-    });
-
-    res.json({ message: rewardCoins > 0 ? 'Reward claimed' : 'Session tracked', coinsEarned: rewardCoins });
+    res.json(result);
   } catch (error: any) {
     sendServerError(res, error);
   }

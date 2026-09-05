@@ -21,6 +21,25 @@ const queryString = (value: unknown): string | undefined => {
   return value !== undefined ? String(value) : undefined;
 };
 
+/**
+ * Validates a set of {value, field, min} triples are all non-negative integers
+ * (when present — undefined is allowed through, matching the existing
+ * partial-update pattern). Returns the first error message, or null if clean.
+ * These economy fields feed straight into client-side arithmetic (ad interval
+ * randomization, wallet credits, daily-cap comparisons) with no bounds
+ * checking downstream, so a bad value here silently breaks or drains a wallet.
+ */
+const validateNonNegativeInts = (fields: { value: unknown; name: string; min?: number }[]): string | null => {
+  for (const { value, name, min = 0 } of fields) {
+    if (value === undefined) continue;
+    const n = Number(value);
+    if (!Number.isFinite(n) || !Number.isInteger(n) || n < min) {
+      return `${name} must be an integer >= ${min}`;
+    }
+  }
+  return null;
+};
+
 // ─────────────────────────────────────────────────────────
 // AD PLACEMENTS CRUD
 // ─────────────────────────────────────────────────────────
@@ -41,6 +60,22 @@ export const createAdPlacement = async (req: AuthRequest, res: Response): Promis
 
     if (!key || !screen || !adFormat || !adUnitKey) {
       res.status(400).json({ error: 'key, screen, adFormat, and adUnitKey are required' });
+      return;
+    }
+
+    const validationError = validateNonNegativeInts([
+      { value: intervalMin, name: 'intervalMin' },
+      { value: intervalMax, name: 'intervalMax' },
+      { value: cooldownSeconds, name: 'cooldownSeconds' },
+      { value: maxPerSession, name: 'maxPerSession' },
+      { value: skipFirstNActions, name: 'skipFirstNActions' },
+    ]);
+    if (validationError) {
+      res.status(400).json({ error: validationError });
+      return;
+    }
+    if ((intervalMin ?? 3) > (intervalMax ?? 6)) {
+      res.status(400).json({ error: 'intervalMin must be <= intervalMax' });
       return;
     }
 
@@ -74,6 +109,24 @@ export const updateAdPlacement = async (req: AuthRequest, res: Response): Promis
 
     const { enabled, intervalMin, intervalMax, cooldownSeconds, maxPerSession,
             skipFirstNActions, titleKey, descriptionKey, ctaLabelKey } = req.body;
+
+    const validationError = validateNonNegativeInts([
+      { value: intervalMin, name: 'intervalMin' },
+      { value: intervalMax, name: 'intervalMax' },
+      { value: cooldownSeconds, name: 'cooldownSeconds' },
+      { value: maxPerSession, name: 'maxPerSession' },
+      { value: skipFirstNActions, name: 'skipFirstNActions' },
+    ]);
+    if (validationError) {
+      res.status(400).json({ error: validationError });
+      return;
+    }
+    const effectiveMin = intervalMin ?? before.intervalMin;
+    const effectiveMax = intervalMax ?? before.intervalMax;
+    if (effectiveMin > effectiveMax) {
+      res.status(400).json({ error: 'intervalMin must be <= intervalMax' });
+      return;
+    }
 
     const placement = await prisma.adPlacement.update({
       where: { id },
@@ -134,6 +187,16 @@ export const updateAdRewardRule = async (req: AuthRequest, res: Response): Promi
 
     const { coinsAwarded, dailyCapForType, cooldownSeconds, enabled, requiresFullWatch } = req.body;
 
+    const validationError = validateNonNegativeInts([
+      { value: coinsAwarded, name: 'coinsAwarded' },
+      { value: dailyCapForType, name: 'dailyCapForType' },
+      { value: cooldownSeconds, name: 'cooldownSeconds' },
+    ]);
+    if (validationError) {
+      res.status(400).json({ error: validationError });
+      return;
+    }
+
     const rule = await prisma.adRewardRule.update({
       where: { adType },
       data: {
@@ -174,6 +237,16 @@ export const updateDailyCapPolicy = async (req: AuthRequest, res: Response): Pro
     if (!before) { res.status(404).json({ error: 'Policy not found' }); return; }
 
     const { maxAdsPerDay, maxCoinsPerDay, minCooldownSeconds } = req.body;
+
+    const validationError = validateNonNegativeInts([
+      { value: maxAdsPerDay, name: 'maxAdsPerDay' },
+      { value: maxCoinsPerDay, name: 'maxCoinsPerDay' },
+      { value: minCooldownSeconds, name: 'minCooldownSeconds' },
+    ]);
+    if (validationError) {
+      res.status(400).json({ error: validationError });
+      return;
+    }
 
     const policy = await prisma.dailyCapPolicy.update({
       where: { tier },

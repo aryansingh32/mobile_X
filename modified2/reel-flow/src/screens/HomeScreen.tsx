@@ -1,6 +1,6 @@
 import { useShallow } from 'zustand/react/shallow';
 import React, { useEffect, useState, useMemo, useRef, useImperativeHandle } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl, Alert, Image } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl, Alert, Image, Linking } from 'react-native';
 import { useAppStore } from '../store/useAppStore';
 import { useConfigStore } from '../store/useConfigStore';
 import { Shimmer } from '../components/ui/Shimmer';
@@ -36,6 +36,9 @@ import { RouletteWheel, RouletteSlice } from '../components/ui/RouletteWheel';
 import RedemptionSuccessScreen from './RedemptionSuccessScreen';
 import { TrendingShortsCatalog } from '../components/ui/TrendingShortsCatalog';
 import { VIBIcon } from '../components/ui/VIBIcon';
+import { useFeatureFlag } from '../hooks/useFeatureFlag';
+import { AffiliateProduct, getAffiliateProducts, trackAffiliateClick } from '../api/affiliate';
+import { ProductCard } from '../components/affiliate/ProductCard';
 
 type HomeScreenProps = {
   onNavigate: (tab: TabId) => void;
@@ -55,7 +58,7 @@ export interface HomeScreenHandle {
   handleBack: () => boolean;
 }
 
-export const HomeScreen = React.forwardRef<HomeScreenHandle, HomeScreenProps>(({
+export const HomeScreen = React.memo(React.forwardRef<HomeScreenHandle, HomeScreenProps>(({
   onNavigate,
   onOpenGames,
   onOpenProfile,
@@ -119,6 +122,23 @@ export const HomeScreen = React.forwardRef<HomeScreenHandle, HomeScreenProps>(({
   const sponsoredCardClaimed = sponsoredCardClaimedDate === todayStr;
 
   const { showToast } = useToast();
+
+  const storeEnabled = useFeatureFlag('affiliate_store_enabled', false);
+  const [storeProducts, setStoreProducts] = useState<AffiliateProduct[]>([]);
+  useEffect(() => {
+    if (!storeEnabled) return;
+    getAffiliateProducts().then((products) => setStoreProducts(products.slice(0, 6))).catch(() => {});
+  }, [storeEnabled]);
+
+  const handleStoreProductBuy = async (product: AffiliateProduct) => {
+    try {
+      const result = await trackAffiliateClick(product.id);
+      await Linking.openURL(result.affiliateUrl || product.affiliateUrl);
+      showToast(`Opening ${product.platform}… VIB is credited after your purchase is verified.`, 'info');
+    } catch {
+      Linking.openURL(product.affiliateUrl).catch(() => showToast('Could not open the product link', 'error'));
+    }
+  };
 
   const rewardedCoinAmount = useConfigStore(
     (s) => s.adRewardRules?.['REWARDED']?.coinsAwarded ?? 100
@@ -710,6 +730,18 @@ export const HomeScreen = React.forwardRef<HomeScreenHandle, HomeScreenProps>(({
           onViewMore={() => onNavigate('hot')}
         />
 
+        {/* Store teaser — full catalog lives in the Rewards tab's default Shop page */}
+        {storeEnabled && storeProducts.length > 0 && (
+          <View style={{ marginBottom: 16 }}>
+            <SectionHeader title="Store" subtitle="Shop and earn VIB" actionLabel="See all" onActionPress={() => onNavigate('rewards')} />
+            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+              {storeProducts.map((product) => (
+                <ProductCard key={product.id} product={product} variant="row" onPress={handleStoreProductBuy} />
+              ))}
+            </ScrollView>
+          </View>
+        )}
+
         {/* Roulette Wheel Modal removed from scroll view flow */}
 
         {/* Sponsored Reward Card — shown once per day */}
@@ -855,7 +887,7 @@ export const HomeScreen = React.forwardRef<HomeScreenHandle, HomeScreenProps>(({
       )}
     </View>
   );
-});
+}));
 
 HomeScreen.displayName = 'HomeScreen';
 

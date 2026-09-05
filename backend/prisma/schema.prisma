@@ -42,6 +42,7 @@ model User {
   referrals       Referral[]       @relation("ReferrerRelation")
   referredBy      Referral?        @relation("ReferredRelation")
   suggestions     RewardSuggestion[]
+  affiliatePurchases AffiliatePurchase[]
   notifications   Notification[]
   abAllocations   ABTestAllocation[]
   dailyStats      DailyUserStats[]
@@ -380,6 +381,65 @@ model CatalogCode {
 
   @@unique([catalogItemId, code])
   @@index([catalogItemId, status])
+}
+
+// Affiliate marketplace: admin-curated Amazon/Flipkart-style product catalog.
+// VIB is deferred, not auto-credited on click — see AffiliatePurchase.
+model AffiliateProduct {
+  id           Int      @id @default(autoincrement())
+  title        String
+  description  String?
+  imageUrl     String
+  price        Float          // display price shown in the app (INR)
+  vibReward    Int            // VIB coins earned once admin confirms the purchase
+  affiliateUrl String         // outbound Amazon/Flipkart link
+  platform     String         // "AMAZON" | "FLIPKART" | "OTHER" (free string, like CoinLedger.source)
+  category     String         // admin free-text, e.g. "Electronics"
+  section      String   @default("GENERAL") // "FEATURED" | "TRENDING" | "DEALS" | "GENERAL" — drives which shelf/layout it appears in
+  clickCount   Int      @default(0)
+  isActive     Boolean  @default(true)
+  sortOrder    Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  updatedBy    Int?
+  purchases    AffiliatePurchase[]
+
+  @@index([section, isActive, sortOrder])
+}
+
+model AffiliateBanner {
+  id        Int      @id @default(autoincrement())
+  imageUrl  String
+  linkType  String   // "PRODUCT" | "CATEGORY" | "URL"
+  linkValue String   // productId / category name / raw URL, depending on linkType
+  isActive  Boolean  @default(true)
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  updatedBy Int?
+}
+
+// One row per "Buy" tap — a purchase-intent record, not a confirmed sale.
+// This app has no live Amazon Associates / Flipkart Affiliate API access, so
+// VIB is credited manually by an admin after checking their own affiliate
+// dashboard for a real conversion, not automatically on click.
+model AffiliatePurchase {
+  id           Int       @id @default(autoincrement())
+  userId       Int
+  user         User      @relation(fields: [userId], references: [id])
+  productId    Int?
+  product      AffiliateProduct? @relation(fields: [productId], references: [id])
+  productTitle String            // denormalized snapshot — survives product edits/deletion
+  vibReward    Int               // snapshotted from product.vibReward at click time; admin-editable before crediting
+  amount       Float?            // actual purchase amount, admin-entered after checking their affiliate dashboard
+  status       String   @default("PENDING") // "PENDING" | "CONFIRMED" | "CREDITED" | "REJECTED"
+  clickedAt    DateTime @default(now())
+  creditedAt   DateTime?
+  creditedBy   Int?              // admin user id
+  adminNotes   String?
+
+  @@index([userId, clickedAt])
+  @@index([status])
 }
 
 // User reward suggestion (for wallet feedback)

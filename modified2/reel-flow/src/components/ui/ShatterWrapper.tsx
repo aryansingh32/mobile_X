@@ -186,10 +186,14 @@ export const ShatterWrapper: React.FC<ShatterWrapperProps> = ({
     outputRange: [0, 0.55],
   });
 
+  // height is JS-driven (can't be native-driven) — it must live alone on this node.
+  // Mixing it with a native-driven transform on the same style object moves the whole
+  // node onto the native driver and both animations break: "Style property 'height' is
+  // not supported by native animated module" + "JS driven animation on a native node".
   return (
-    <Animated.View style={[styles.container, { height: heightAnim, width, transform: [{ scale: anticipationScale }] }]}>
+    <Animated.View style={[styles.container, { height: heightAnim, width }]}>
       {/* Clipped layer: just the real card content, keeps rounded corners clean */}
-      <Animated.View style={[styles.clip, { opacity: childrenOpacity, transform: [{ scale: childrenScale }] }]}>
+      <Animated.View style={[styles.clip, { opacity: childrenOpacity, transform: [{ scale: childrenScale }, { scale: anticipationScale }] }]}>
         {children}
         {isShattered && (
           <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, { backgroundColor: '#FFF', opacity: flashOpacity }]} />

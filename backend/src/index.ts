@@ -24,6 +24,7 @@ import referralRoutes from './routes/referral';
 import rewardsRoutes from './routes/rewards';
 import configRoutes from './routes/config';
 import telemetryRoutes from './routes/telemetry';
+import affiliateRoutes from './routes/affiliate';
 import { startNewsIngestion } from './services/newsIngestionService';
 
 import './services/queueService'; // Start BullMQ worker
@@ -78,7 +79,24 @@ app.use(fraudDetectionMiddleware);
 
 const requireSignature = (req: express.Request, res: express.Response, next: express.NextFunction) => {
   const path = req.path;
-  if (path.startsWith('/api/webhooks') || path === '/api/rewards/ssv' || path === '/api/health') {
+  // Skip signature check for:
+  // - The one genuine third-party webhook callback (no control over headers).
+  //   NOT the whole /api/webhooks/offerwall/* prefix — /tasks and /complete
+  //   under that same prefix are ordinary JWT-authenticated app endpoints
+  //   (the mobile client calls them through the same signing axios instance
+  //   as everything else) and must get the same HMAC/replay protection every
+  //   other authenticated endpoint gets; only /postback is the real callback.
+  // - SSV rewards endpoint (Google/Meta callback, no control over headers)
+  // - Health check
+  // - Auth endpoints called by the admin panel (browser-based, no HMAC headers)
+  // - All admin routes (protected by admin JWT middleware instead)
+  if (
+    path === '/api/webhooks/offerwall/postback' ||
+    path === '/api/rewards/ssv' ||
+    path === '/api/health' ||
+    path === '/api/auth/google' ||
+    path.startsWith('/api/admin')
+  ) {
     return next();
   }
   return verifyApiSignature(req, res, next);
@@ -96,6 +114,7 @@ app.use('/api/referral', referralRoutes);
 app.use('/api/rewards', rewardsRoutes);
 app.use('/api/config', configRoutes);
 app.use('/api/telemetry', telemetryRoutes);
+app.use('/api/affiliate', affiliateRoutes);
 
 app.get('/api/health', (req, res) => {
   res.json({ status: 'OK', message: 'Rewarded Engagement API is running.' });

@@ -46,7 +46,7 @@ export const getCatalog = async (req: AuthRequest, res: Response) => {
 export const requestWithdrawal = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const userId = req.user.id;
-    const { catalogItemId, destinationId, size, color, deliveryAddress, mobileNumber } = req.body;
+    const { catalogItemId, destinationId, size, color, deliveryAddress, mobileNumber, requestId } = req.body;
 
     if (!catalogItemId) {
       res.status(400).json({ error: 'catalogItemId is required' });
@@ -93,7 +93,16 @@ export const requestWithdrawal = async (req: AuthRequest, res: Response): Promis
         }
       }
 
-      const idempotencyKey = `withdrawal-request:${userId}:${catalogItemId}:${crypto.randomUUID()}`;
+      // A client-supplied requestId (stable across a retried/double-tapped
+      // submission of the same modal, see WalletScreen.tsx's
+      // withdrawalRequestIdRef) makes this idempotency key deterministic, so
+      // addLedgerEntry's unique-constraint write below rejects a genuine
+      // duplicate instead of silently debiting coins twice. Older clients
+      // that don't send one fall back to a random key — no dedup, same as
+      // before, but never a hard failure for them.
+      const idempotencyKey = requestId
+        ? `withdrawal-request:${userId}:${catalogItemId}:${String(requestId).slice(0, 120)}`
+        : `withdrawal-request:${userId}:${catalogItemId}:${crypto.randomUUID()}`;
       await addLedgerEntry(
         userId,
         -item.coinCost,
@@ -137,10 +146,18 @@ export const requestWithdrawal = async (req: AuthRequest, res: Response): Promis
         issuedCode = availableCode;
       }
 
-      // Trigger referral commission for all withdrawals (Voucher or Pending UPI)
-      const referral = await tx.referral.findFirst({
+      // Only pay referral commission here for withdrawals that are instantly
+      // finalized (a voucher code was issued — status is APPROVED and can't be
+      // reversed). A PENDING withdrawal (UPI/physical/custom awaiting admin
+      // review) must NOT be paid here: it can still be rejected, and there's
+      // no clawback path for a bonus already paid out. adminController.ts's
+      // processWithdrawal already pays this same bonus (same `withdrawal:${id}`
+      // idempotency key) at the moment a PENDING withdrawal is approved — paying
+      // it here too would both double-pay on approval (idempotency-key
+      // collision) and leak it forever on rejection.
+      const referral = availableCode ? await tx.referral.findFirst({
         where: { referredId: userId }
-      });
+      }) : null;
       if (referral) {
         // Fetch percentages from admin config, default to 10, 15, 20
         const t1Conf = await tx.appConfig.findUnique({ where: { key: 'referral_percent_tier_1' } });
@@ -196,6 +213,10 @@ export const requestWithdrawal = async (req: AuthRequest, res: Response): Promis
         : null,
     });
   } catch (error: any) {
+    if (error.code === 'P2002') {
+      res.status(409).json({ error: 'This withdrawal request was already submitted.' });
+      return;
+    }
     sendControllerError(res, error);
   }
 };
@@ -268,8 +289,14 @@ export const getMyWithdrawals = async (req: AuthRequest, res: Response) => {
       take: limit + 1,
       ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
       include: {
-        catalogCode: { select: { code: true, serialNumber: true, note: true } },
-        catalogItem: { select: { name: true, imageUrl: true, type: true } },
+        catalogCode: {
+          select: {
+            code: true,
+            serialNumber: true,
+            note: true,
+            catalogItem: { select: { name: true, imageUrl: true, type: true } },
+          },
+        },
       }
     });
 

@@ -5,7 +5,7 @@ export const getCatalog = async () => {
   return data.data;
 };
 
-export const requestWithdrawal = async (payload: { catalogItemId: number; destinationId?: string; size?: string; color?: string; deliveryAddress?: string; mobileNumber?: string }) => {
+export const requestWithdrawal = async (payload: { catalogItemId: number; destinationId?: string; size?: string; color?: string; deliveryAddress?: string; mobileNumber?: string; requestId?: string }) => {
   const { data } = await apiClient.post('/api/wallet/withdraw', payload);
   return data;
 };
