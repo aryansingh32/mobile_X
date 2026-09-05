@@ -116,8 +116,15 @@ export const useConfigStore = create<ConfigState>()(
           lastFetchedAt: Date.now(),
         }),
 
+      // Called on every RemoteConfigProvider poll for logged-out/onboarding
+      // users (mount + foreground + every 15min) to refresh maintenance_mode
+      // — bail out when the value hasn't actually changed so zustand's
+      // persist middleware doesn't re-serialize and write the entire config
+      // blob to AsyncStorage on every single poll.
       setFeatureFlag: (key, value) =>
-        set((state) => ({ featureFlags: { ...state.featureFlags, [key]: value } })),
+        set((state) => (state.featureFlags[key] === value
+          ? state
+          : { featureFlags: { ...state.featureFlags, [key]: value } })),
 
       setHydrated: (h) => set({ hydrated: h }),
 

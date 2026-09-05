@@ -12,16 +12,20 @@ const cardWidth = (windowWidth - 48) / 2; // 2 columns with 16 padding on sides 
 
 type Props = {
   game: Game;
-  onPress: () => void;
+  // Takes the game itself so every card in a list can share one stable
+  // `onPress` reference from the parent (see HomeScreen/GamesScreen) —
+  // required for this component's React.memo below to actually skip
+  // re-renders instead of seeing a "new" prop every time.
+  onPress: (game: Game) => void;
 };
 
-export const GameGridCard = ({ game, onPress }: Props) => {
+const GameGridCardImpl = ({ game, onPress }: Props) => {
   const [imageLoaded, setImageLoaded] = useState(false);
   const Icon = game.icon || Gamepad2;
   const url = thumbnailUrl(game);
 
   return (
-    <Pressable style={({ pressed }) => [styles.card, pressed && { opacity: 0.75 }]} onPress={onPress}>
+    <Pressable style={({ pressed }) => [styles.card, pressed && { opacity: 0.75 }]} onPress={() => onPress(game)}>
       <View style={styles.imageContainer}>
         {url ? (
           <>
@@ -62,6 +66,10 @@ export const GameGridCard = ({ game, onPress }: Props) => {
     </Pressable>
   );
 };
+
+// Rendered up to ~90 at a time (Games tab) — skip re-rendering cards whose
+// `game`/`onPress` haven't changed when an unrelated list re-render happens.
+export const GameGridCard = React.memo(GameGridCardImpl);
 
 const styles = StyleSheet.create({
   card: {

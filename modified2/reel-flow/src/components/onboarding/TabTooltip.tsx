@@ -32,7 +32,7 @@ const TOOLTIP_CONTENT: Record<string, { title: string; body: React.ReactNode }> 
   },
 };
 
-export const TabTooltip: React.FC<TabTooltipProps> = ({ tab, onDismiss }) => {
+const TabTooltipImpl: React.FC<TabTooltipProps> = ({ tab, onDismiss }) => {
   const { hasSeenTabTooltip, markTabSeen } = useAppStore(useShallow(s => ({ hasSeenTabTooltip: s.hasSeenTabTooltip, markTabSeen: s.markTabSeen })));
   const [visible, setVisible] = useState(false);
   const slideAnim = useRef(new Animated.Value(20)).current;
@@ -96,6 +96,11 @@ export const TabTooltip: React.FC<TabTooltipProps> = ({ tab, onDismiss }) => {
     </Modal>
   );
 };
+
+// Rendered unconditionally alongside BottomNavBar on every main-tab screen —
+// memoizing means the (cheap but non-zero) hook/selector work above doesn't
+// re-run on every unrelated MainApp render, matching `tab`/`onDismiss` only.
+export const TabTooltip = React.memo(TabTooltipImpl);
 
 const styles = StyleSheet.create({
   overlay: {

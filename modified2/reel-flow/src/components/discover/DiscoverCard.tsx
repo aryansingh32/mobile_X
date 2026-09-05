@@ -30,7 +30,7 @@ export const CARD_HEIGHT = windowHeight * 0.67; // 60% of screen height to fit p
 export const ITEM_SPACING = 5;
 export const ITEM_SIZE = CARD_HEIGHT + ITEM_SPACING;
 
-export const DiscoverCard: React.FC<Props> = ({ data, index, scrollY, onPress, isLoading, isShattered, onShatterComplete }) => {
+const DiscoverCardImpl: React.FC<Props> = ({ data, index, scrollY, onPress, isLoading, isShattered, onShatterComplete }) => {
   const containerRef = useRef<View>(null);
   const adCtaScale = useRef(new Animated.Value(1)).current;
   const footerScale = useRef(new Animated.Value(1)).current;
@@ -243,6 +243,12 @@ export const DiscoverCard: React.FC<Props> = ({ data, index, scrollY, onPress, i
     </Animated.View>
   );
 };
+
+// FlatList re-invokes renderItem on every DiscoverScreen re-render even for
+// unaffected rows; with a stable `onPress`/`scrollY` from the parent this
+// lets untouched cards skip re-rendering entirely instead of re-running
+// their own image/shimmer/animation setup each time.
+export const DiscoverCard = React.memo(DiscoverCardImpl);
 
 const styles = StyleSheet.create({
   container: {

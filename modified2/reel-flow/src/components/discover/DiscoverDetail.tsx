@@ -59,7 +59,11 @@ export const DiscoverDetail: React.FC<Props> = ({ data, layout, onClose }) => {
         toValue: 1,
         duration: 350,
         easing: Easing.out(Easing.cubic),
-        useNativeDriver: false,
+        // Only ever drives translateY + opacity below — both animatable on
+        // the native/UI thread, so this no longer rides the JS bridge and
+        // stays smooth even while JS is busy (e.g. the feed behind it
+        // fetching more pages).
+        useNativeDriver: true,
       }).start();
     } else if (!data && isVisible) {
       // Close animation
@@ -67,7 +71,7 @@ export const DiscoverDetail: React.FC<Props> = ({ data, layout, onClose }) => {
         toValue: 0,
         duration: 300,
         easing: Easing.inOut(Easing.cubic),
-        useNativeDriver: false,
+        useNativeDriver: true,
       }).start(() => {
         setIsVisible(false);
       });

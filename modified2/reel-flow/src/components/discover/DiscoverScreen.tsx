@@ -237,20 +237,7 @@ export const DiscoverScreen: React.FC = () => {
     loadData(false, selectedCategory, newSrc);
   };
 
-  const handleCardPress = async (cardData: any, layout: CardLayout) => {
-    // Haptic feedback on card press
-    triggerHaptic('impact-medium', 'haptics_navigation');
-
-    if (cardData.isAd) {
-      triggerRewardedAd(cardData.id);
-      return;
-    }
-    trackEvent('NEWS_READ', 1);
-    setSelectedCard(cardData);
-    setCardLayout(layout);
-  };
-
-  const triggerRewardedAd = (adCardId: string) => {
+  const triggerRewardedAd = useCallback((adCardId: string) => {
     if (isAdPenalized()) {
       triggerHaptic('warning');
       Alert.alert('Slow down a bit', formatAdPenaltyMessage(getAdPenaltyRemainingSeconds()));
@@ -369,7 +356,26 @@ export const DiscoverScreen: React.FC = () => {
     } else {
       rewarded.load();
     }
-  };
+    // preloadRewardedAd is intentionally omitted: it's a plain closure
+    // recreated every render, but its behavior is fully determined by
+    // adUnitId/deviceId, both already listed below — including it would
+    // force a new triggerRewardedAd (and defeat DiscoverCard's memo) every
+    // render for no behavioral difference.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [adUnitId, canWatchAd, isAdPlaying, setAdPlaying, deviceId, discoverCoins, updateBalance, incrementAdCount, trackEvent]);
+
+  const handleCardPress = useCallback((cardData: any, layout: CardLayout) => {
+    // Haptic feedback on card press
+    triggerHaptic('impact-medium', 'haptics_navigation');
+
+    if (cardData.isAd) {
+      triggerRewardedAd(cardData.id);
+      return;
+    }
+    trackEvent('NEWS_READ', 1);
+    setSelectedCard(cardData);
+    setCardLayout(layout);
+  }, [triggerRewardedAd, trackEvent]);
 
   const handleCloseDetail = () => {
     triggerHaptic('impact-light', 'haptics_navigation');

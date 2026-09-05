@@ -1,5 +1,6 @@
-import React, { useRef, useEffect, useState } from 'react';
-import { Animated, Easing, StyleSheet, Text, View, Image, TouchableOpacity, Dimensions } from 'react-native';
+import React, { useRef, useEffect } from 'react';
+import { Animated, Easing, StyleSheet, Text, View, TouchableOpacity, Dimensions } from 'react-native';
+import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { ArrowRight } from 'lucide-react-native';
 import { FallingEmbers } from '../components/ui/FallingEmbers';
@@ -12,27 +13,21 @@ type WelcomeScreenProps = {
 };
 
 export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onGetStarted, onLogin }) => {
-  // Splash phase: Hero image centered
-  // Welcome phase: Hero image shifted up, text faded in
-  const [isSplashPhase, setIsSplashPhase] = useState(true);
-
-  // Animated values
-  const heroScale = useRef(new Animated.Value(0)).current;
+  // WelcomeScreen always mounts immediately after SplashScreen, which already
+  // played the hero's pop-in (centered, full scale/opacity) and has the same
+  // gradient/embers running. Replaying that pop-in here (starting the hero
+  // back at scale 0) made the hero visibly vanish and re-grow right after
+  // splash — the "blank gap" between splash and content. So the hero starts
+  // already fully visible/at-rest here, and only the shift-up + text-reveal
+  // (which splash never showed) plays, continuing the same animation instead
+  // of restarting it.
   const heroTranslateY = useRef(new Animated.Value(height * 0.18)).current; // Start lowered (centered)
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(30)).current;
   const pulseAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
-    // 1. Initial Splash Animation (Hero Pop-In - slower)
-    Animated.spring(heroScale, {
-      toValue: 1,
-      tension: 25,
-      friction: 12,
-      useNativeDriver: true,
-    }).start();
-
-    // 2. Pulse background rings endlessly
+    // Pulse background rings endlessly
     const pulseLoop = Animated.loop(
       Animated.timing(pulseAnim, {
         toValue: 1,
@@ -43,39 +38,32 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onGetStarted, onLo
     );
     pulseLoop.start();
 
-    // 3. Transition to Welcome Phase (Shift UP & Fade In)
-    const transitionTimer = setTimeout(() => {
-      setIsSplashPhase(false);
-      
-      Animated.parallel([
-        // Smoothly shift the hero image UP to its final position (slower spring)
-        Animated.spring(heroTranslateY, {
-          toValue: 0,
-          friction: 14,
-          tension: 20,
-          useNativeDriver: true,
-        }),
-        // Fade in the text and buttons (slower fade)
-        Animated.timing(fadeAnim, {
-          toValue: 1,
-          duration: 1200,
-          useNativeDriver: true,
-        }),
-        // Slide up the text and buttons (slower spring)
-        Animated.spring(slideAnim, {
-          toValue: 0,
-          friction: 14,
-          tension: 20,
-          useNativeDriver: true,
-        }),
-      ]).start();
-    }, 2000); // Hold splash for 2 seconds
+    // Shift hero UP & fade in text/buttons — starts right away (continuing
+    // straight on from splash) instead of after an artificial hold.
+    Animated.parallel([
+      Animated.spring(heroTranslateY, {
+        toValue: 0,
+        friction: 14,
+        tension: 20,
+        useNativeDriver: true,
+      }),
+      Animated.timing(fadeAnim, {
+        toValue: 1,
+        duration: 1200,
+        useNativeDriver: true,
+      }),
+      Animated.spring(slideAnim, {
+        toValue: 0,
+        friction: 14,
+        tension: 20,
+        useNativeDriver: true,
+      }),
+    ]).start();
 
     return () => {
-      clearTimeout(transitionTimer);
       pulseLoop.stop();
     };
-  }, [heroScale, heroTranslateY, fadeAnim, slideAnim, pulseAnim]);
+  }, [heroTranslateY, fadeAnim, slideAnim, pulseAnim]);
 
   const pulseScale1 = pulseAnim.interpolate({
     inputRange: [0, 1],
@@ -104,8 +92,8 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onGetStarted, onLo
         style={StyleSheet.absoluteFill} 
       />
       
-      {/* Falling Sparks/Embers Effect - Top to bottom while in splash phase */}
-      <FallingEmbers topToBottom={isSplashPhase} />
+      {/* Falling Sparks/Embers Effect — same direction Splash was already using */}
+      <FallingEmbers topToBottom />
       
       {/* Hero Section (Animates from center to top) */}
       <Animated.View style={[styles.content, { paddingBottom: 0, paddingTop: height * 0.05, flex: 0, transform: [{ translateY: heroTranslateY }] }]}>
@@ -113,10 +101,11 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onGetStarted, onLo
           <Animated.View style={[styles.pulseRing, { transform: [{ scale: pulseScale1 }], opacity: pulseOpacity1 }]} />
           <Animated.View style={[styles.pulseRing, { transform: [{ scale: pulseScale2 }], opacity: pulseOpacity2 }]} />
           
-          <Animated.Image 
-            source={require('../../assets/images/welcome-hero.png')} 
-            style={[styles.heroImage, { transform: [{ scale: heroScale }] }]}
-            resizeMode="contain"
+          <Image
+            source={require('../../assets/images/welcome-hero.webp')}
+            style={styles.heroImage}
+            contentFit="contain"
+            cachePolicy="memory-disk"
           />
         </View>
       </Animated.View>

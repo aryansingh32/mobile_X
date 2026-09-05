@@ -28,7 +28,7 @@ import { useAdPlacement, isAdPenalized, getAdPenaltyRemainingSeconds } from '../
 import { useAdUnitId } from '../hooks/useAdUnitId';
 import { reportAdEvent } from '../api/config';
 import { reportAdEventWithPenaltyCheck, formatAdPenaltyMessage } from '../utils/adFarmingGuard';
-import { fetchCached, invalidateCached } from '../utils/requestCache';
+import { fetchCached, invalidateCached, peekCached } from '../utils/requestCache';
 import { getRouletteConfig } from '../api/rewards';
 import { getDeviceId } from '../utils/deviceSafety';
 import CoinRain from '../components/ui/CoinRain';
@@ -92,7 +92,12 @@ export const HomeScreen = React.forwardRef<HomeScreenHandle, HomeScreenProps>(({
     trackEvent,
   } = useAppStore(useShallow(s => ({ user: s.user, isAdPlaying: s.isAdPlaying, setAdPlaying: s.setAdPlaying, canWatchAd: s.canWatchAd, incrementAdCount: s.incrementAdCount, updateBalance: s.updateBalance, coinBalance: s.coinBalance, xp: s.xp, level: s.level, streak: s.streak, dailyAdsWatched: s.dailyAdsWatched, dailyRewardsCap: s.dailyRewardsCap, streakClaimedToday: s.streakClaimedToday, setBalance: s.setBalance, setXp: s.setXp, setLevel: s.setLevel, setStreak: s.setStreak, setDailyStats: s.setDailyStats, setStreakClaimedToday: s.setStreakClaimedToday, setDailyBonusAvailable: s.setDailyBonusAvailable, setConfigValues: s.setConfigValues, sponsoredCardClaimedDate: s.sponsoredCardClaimedDate, setSponsoredCardClaimedDate: s.setSponsoredCardClaimedDate, games: s.games, setGames: s.setGames, trackEvent: s.trackEvent })));
 
-  const [loading, setLoading] = useState(true);
+  // Lazy init: if Home was already visited this session (its dashboard
+  // fetch is cached), skip the initial shimmer frame entirely instead of
+  // defaulting to `true` and flipping to `false` a tick later — App.tsx
+  // fully remounts this screen on every tab switch, so without this a
+  // revisit within the cache's freshness window still flashed the skeleton.
+  const [loading, setLoading] = useState(() => peekCached('home:dashboard') === undefined);
   const [refreshing, setRefreshing] = useState(false);
   const [selectedGame, setSelectedGame] = useState<Game | null>(null);
   const gamePlayerRef = useRef<GamePlayerOverlayHandle>(null);
@@ -744,7 +749,7 @@ export const HomeScreen = React.forwardRef<HomeScreenHandle, HomeScreenProps>(({
           <SectionHeader title={gamesTitle} subtitle={gamesSubtitle} />
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between' }}>
             {games.slice(0, 12).map((game: any) => (
-              <GameGridCard key={game.id} game={game} onPress={() => setSelectedGame(game)} />
+              <GameGridCard key={game.id} game={game} onPress={setSelectedGame} />
             ))}
           </View>
           {games.length === 0 && (

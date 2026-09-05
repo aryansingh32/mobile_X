@@ -7,8 +7,8 @@ import {
   View,
   Dimensions,
   StatusBar,
-  Image,
 } from 'react-native';
+import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import AnimatedProgressBar from '../components/ui/AnimatedProgressBar';
 import { COLORS, SPACING } from '../constants/theme';
@@ -131,13 +131,15 @@ const SplashScreen = ({ onFinish }: { onFinish?: () => void }) => {
       {/* Hidden image preloader to ensure Welcome/Auth screens render instantly without shimmering. 
           The splash screen will remain visible until these are cached! */}
       <View style={{ position: 'absolute', left: -10000, width: 1, height: 1 }} pointerEvents="none">
-        <Image 
-          source={require('../../assets/images/chest.png')} 
+        <Image
+          source={require('../../assets/images/chest.webp')}
+          cachePolicy="memory-disk"
           onLoad={() => setImagesLoaded(c => c + 1)}
           onError={() => setImagesLoaded(c => c + 1)} // fallback to proceed anyway
         />
-        <Image 
-          source={require('../../assets/images/welcome-hero.png')} 
+        <Image
+          source={require('../../assets/images/welcome-hero.webp')}
+          cachePolicy="memory-disk"
           onLoad={() => setImagesLoaded(c => c + 1)}
           onError={() => setImagesLoaded(c => c + 1)}
         />
@@ -160,17 +162,14 @@ const SplashScreen = ({ onFinish }: { onFinish?: () => void }) => {
           <Animated.View style={[styles.pulseRing, { transform: [{ scale: pulseScale1 }], opacity: pulseOpacity1 }]} />
           <Animated.View style={[styles.pulseRing, { transform: [{ scale: pulseScale2 }], opacity: pulseOpacity2 }]} />
           
-          <Animated.Image 
-            source={require('../../assets/images/welcome-hero.png')} 
-            style={[
-              styles.heroImage,
-              {
-                opacity: heroOpacity,
-                transform: [{ scale: heroScale }]
-              }
-            ]}
-            resizeMode="contain"
-          />
+          <Animated.View style={[styles.heroImage, { opacity: heroOpacity, transform: [{ scale: heroScale }] }]}>
+            <Image
+              source={require('../../assets/images/welcome-hero.webp')}
+              cachePolicy="memory-disk"
+              style={styles.heroImage}
+              contentFit="contain"
+            />
+          </Animated.View>
         </View>
       </View>
     </View>

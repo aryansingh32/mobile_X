@@ -4,7 +4,7 @@ import { View, Text, StyleSheet, FlatList, TouchableOpacity, Platform } from 're
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ArrowLeft } from 'lucide-react-native';
 import { useAppStore } from '../store/useAppStore';
-import { Game } from '../api/games';
+import { fetchGamesFromOrigin, Game } from '../api/games';
 import { GamePlayerOverlay, GamePlayerOverlayHandle } from '../components/ui/GamePlayerOverlay';
 import { GameGridCard } from '../components/ui/GameGridCard';
 
@@ -18,33 +18,42 @@ export interface GamesScreenHandle {
 export const GamesScreen = React.forwardRef<GamesScreenHandle, { onBack: () => void }>(({ onBack }, ref) => {
   const insets = useSafeAreaInsets();
   const [selectedGame, setSelectedGame] = useState<Game | null>(null);
-  const { games, trackEvent } = useAppStore(useShallow(s => ({ games: s.games, trackEvent: s.trackEvent })));
-  const [loading, setLoading] = useState(true);
+  const { games, setGames, trackEvent } = useAppStore(useShallow(s => ({ games: s.games, setGames: s.setGames, trackEvent: s.trackEvent })));
+  const [loading, setLoading] = useState(games.length === 0);
   const playerRef = useRef<GamePlayerOverlayHandle>(null);
 
   useImperativeHandle(ref, () => ({
     handleBack: () => playerRef.current?.handleBack() ?? false,
   }), []);
 
+  // Home usually prefetches `games` into the shared store before this screen
+  // is ever opened, so the common case is an instant, already-populated list
+  // (loading starts false above). If it hasn't landed yet (e.g. Games opened
+  // first), fetch here and gate on the real request instead of a fixed timer
+  // — `fetchGamesFromOrigin` never throws (falls back to the bundled
+  // metadata list on any error/timeout), so this always resolves.
   React.useEffect(() => {
-    let mounted = true;
     if (games.length > 0) {
       setLoading(false);
-    } else {
-      setTimeout(() => { if (mounted) setLoading(false); }, 1500);
+      return;
     }
+    let mounted = true;
+    fetchGamesFromOrigin().then((fetched) => {
+      if (!mounted) return;
+      setGames(fetched);
+      setLoading(false);
+    });
     return () => { mounted = false; };
-  }, [games]);
+  }, [games.length, setGames]);
+
+  const handleGamePress = useCallback((game: Game) => {
+    trackEvent('GAMES_PLAYED', 1);
+    setSelectedGame(game);
+  }, [trackEvent]);
 
   const renderGame = useCallback(({ item }: { item: any }) => (
-    <GameGridCard
-      game={item}
-      onPress={() => {
-        trackEvent('GAMES_PLAYED', 1);
-        setSelectedGame(item);
-      }}
-    />
-  ), [trackEvent]);
+    <GameGridCard game={item} onPress={handleGamePress} />
+  ), [handleGamePress]);
 
   return (
     <View style={styles.root}>

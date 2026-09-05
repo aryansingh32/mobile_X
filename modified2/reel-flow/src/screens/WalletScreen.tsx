@@ -22,7 +22,67 @@ import { useAdUnitId } from '../hooks/useAdUnitId';
 import { reportAdEvent } from '../api/config';
 import { reportAdEventWithPenaltyCheck, formatAdPenaltyMessage } from '../utils/adFarmingGuard';
 import { getDeviceId } from '../utils/deviceSafety';
-import { fetchCached, invalidateCached } from '../utils/requestCache';
+import { fetchCached, invalidateCached, peekCached } from '../utils/requestCache';
+import { Shimmer } from '../components/ui/Shimmer';
+
+// Extracted + memoized so WalletScreen re-renders that have nothing to do
+// with the catalog (ad-loading flags, form fields in the redemption sheet,
+// suggestion text, etc.) don't force every card in the grid to re-render —
+// the ScrollView here isn't virtualized, so this is the only lever available.
+const WalletCatalogCardImpl = ({
+  item,
+  coinBalance,
+  coinToInrRate,
+  onSelect,
+}: {
+  item: any;
+  coinBalance: number;
+  coinToInrRate: number;
+  onSelect: (item: any) => void;
+}) => {
+  const canAfford = coinBalance >= item.coinCost;
+  const soldOut = Boolean(item.soldOut);
+  const cashValue = (item.coinCost * coinToInrRate).toFixed(2);
+  return (
+    <TouchableOpacity
+      style={[styles.catalogCard, (!canAfford || soldOut) && styles.catalogCardDisabled]}
+      onPress={() => canAfford && !soldOut && onSelect(item)}
+      activeOpacity={0.85}
+    >
+      <View style={styles.itemTypeBadge}>
+        {item.type === 'UPI' ? <IndianRupee size={16} color="#FFF" /> : <Gift size={16} color="#FFF" />}
+      </View>
+      {item.imageUrl ? (
+        <Image
+          source={{ uri: item.imageUrl }}
+          style={styles.itemImage}
+          contentFit="cover"
+          cachePolicy="memory-disk"
+          transition={200}
+          priority="low"
+        />
+      ) : (
+        <View style={styles.itemImagePlaceholder}>
+          <ShoppingBag size={28} color="rgba(255,255,255,0.2)" />
+        </View>
+      )}
+      <Text style={styles.itemName}>{item.name}</Text>
+      <Text style={styles.itemInr}>₹{item.inrValue}</Text>
+      <Text style={[styles.stockText, soldOut && styles.soldOutText]}>
+        {soldOut ? 'Sold out' : item.availableStock === -1 ? 'Available' : `${item.availableStock} available`}
+      </Text>
+      <View style={styles.costRow}>
+        <VIBIcon size={14} />
+        <Text style={styles.costText}>{item.coinCost}</Text>
+      </View>
+      <Text style={styles.valueText}>≈ ₹{cashValue}</Text>
+      <View style={styles.redeemBtn}>
+        <Text style={styles.redeemBtnText}>{soldOut ? 'Sold out' : canAfford ? 'Redeem' : 'Insufficient balance'}</Text>
+      </View>
+    </TouchableOpacity>
+  );
+};
+const WalletCatalogCard = React.memo(WalletCatalogCardImpl);
 
 export const WalletScreen = () => {
   const mountedRef = React.useRef(true);
@@ -298,7 +358,19 @@ export const WalletScreen = () => {
 
   useEffect(() => {
     let mounted = true;
-    if (mountedRef.current) setLoading(true);
+    // Only show the loading state when this tab has never been fetched
+    // before — otherwise switching between catalog/rewards/history/suggest
+    // (or just returning to Wallet) re-flashed "Loading wallet..." every
+    // time even though fetchCached below was about to hand back data
+    // instantly. loadData() below still silently revalidates in the
+    // background either way.
+    const cacheKey = activeTab === 'catalog' ? 'wallet:catalog'
+      : activeTab === 'suggest' ? 'wallet:suggestions'
+      : activeTab === 'rewards' ? 'wallet:withdrawals'
+      : 'wallet:history';
+    const hasCachedTabData = peekCached(cacheKey) !== undefined;
+    if (mountedRef.current && !hasCachedTabData) setLoading(true);
+    else if (mountedRef.current) setLoading(false);
     loadData(mounted);
     return () => { mounted = false; };
   }, [activeTab]);
@@ -443,8 +515,14 @@ export const WalletScreen = () => {
           </TouchableOpacity>
         ) : null}
         {loading ? (
-          <View style={styles.loadingWrap}>
-            <Text style={styles.loadingText}>Loading wallet...</Text>
+          <View style={styles.grid}>
+            {[1, 2, 3, 4].map((i) => (
+              <View key={`wallet-shimmer-${i}`} style={styles.catalogCard}>
+                <Shimmer width="100%" height={90} borderRadius={12} style={{ marginBottom: 10 }} />
+                <Shimmer width="70%" height={14} borderRadius={4} style={{ marginBottom: 6 }} />
+                <Shimmer width="40%" height={12} borderRadius={4} />
+              </View>
+            ))}
           </View>
         ) : activeTab === 'catalog' ? (
           <View>
@@ -453,45 +531,15 @@ export const WalletScreen = () => {
               <Text style={styles.emptyText}>Coming soon — check back later!</Text>
             ) : (
               <View style={styles.grid}>
-                {catalog.map(item => {
-                  const canAfford = coinBalance >= item.coinCost;
-                  const soldOut = Boolean(item.soldOut);
-                  const cashValue = (item.coinCost * coinToInrRate).toFixed(2);
-                  return (
-                    <TouchableOpacity key={item.id} style={[styles.catalogCard, (!canAfford || soldOut) && styles.catalogCardDisabled]} onPress={() => canAfford && !soldOut && setSelectedItem(item)} activeOpacity={0.85}>
-                      <View style={styles.itemTypeBadge}>
-                        {item.type === 'UPI' ? <IndianRupee size={16} color="#FFF" /> : <Gift size={16} color="#FFF" />}
-                      </View>
-                      {item.imageUrl ? (
-                        <Image
-                          source={{ uri: item.imageUrl }}
-                          style={styles.itemImage}
-                          contentFit="cover"
-                          cachePolicy="memory-disk"
-                          transition={200}
-                          priority="low"
-                        />
-                      ) : (
-                        <View style={styles.itemImagePlaceholder}>
-                          <ShoppingBag size={28} color="rgba(255,255,255,0.2)" />
-                        </View>
-                      )}
-                      <Text style={styles.itemName}>{item.name}</Text>
-                      <Text style={styles.itemInr}>₹{item.inrValue}</Text>
-                      <Text style={[styles.stockText, soldOut && styles.soldOutText]}>
-                        {soldOut ? 'Sold out' : item.availableStock === -1 ? 'Available' : `${item.availableStock} available`}
-                      </Text>
-                      <View style={styles.costRow}>
-                        <VIBIcon size={14} />
-                        <Text style={styles.costText}>{item.coinCost}</Text>
-                      </View>
-                      <Text style={styles.valueText}>≈ ₹{cashValue}</Text>
-                      <View style={styles.redeemBtn}>
-                        <Text style={styles.redeemBtnText}>{soldOut ? 'Sold out' : canAfford ? 'Redeem' : 'Insufficient balance'}</Text>
-                      </View>
-                    </TouchableOpacity>
-                  );
-                })}
+                {catalog.map(item => (
+                  <WalletCatalogCard
+                    key={item.id}
+                    item={item}
+                    coinBalance={coinBalance}
+                    coinToInrRate={coinToInrRate}
+                    onSelect={setSelectedItem}
+                  />
+                ))}
               </View>
             )}
           </View>
@@ -718,8 +766,6 @@ const styles = StyleSheet.create({
   tabText: { color: 'rgba(255,255,255,0.5)', fontSize: 15, fontWeight: '700' },
   activeTabText: { color: '#FFF' },
   content: { flex: 1, padding: 16 },
-  loadingWrap: { paddingVertical: 32, alignItems: 'center' },
-  loadingText: { color: 'rgba(255,255,255,0.5)' },
   sectionTitle: { color: '#FFF', fontSize: 18, fontWeight: '800', marginBottom: 16 },
   emptyText: { color: 'rgba(255,255,255,0.5)', textAlign: 'center', marginTop: 20 },
   grid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between' },

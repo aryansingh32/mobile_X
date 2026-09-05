@@ -1,5 +1,6 @@
 import React, { useEffect, useRef } from 'react';
-import { Animated, Easing, StyleSheet, View, Image, Dimensions } from 'react-native';
+import { Animated, Easing, StyleSheet, View, Dimensions } from 'react-native';
+import { Image } from 'expo-image';
 
 const { width } = Dimensions.get('window');
 
@@ -72,10 +73,11 @@ export const QuestBoxHero: React.FC<QuestBoxHeroProps> = ({ size = 200, onOpened
       <Animated.View style={[styles.pulseRing, { transform: [{ scale: pulseScale1 }], opacity: pulseOpacity1 }]} />
       <Animated.View style={[styles.pulseRing, { transform: [{ scale: pulseScale2 }], opacity: pulseOpacity2 }]} />
       
-      <Image 
-        source={require('../../../assets/images/chest.png')}
+      <Image
+        source={require('../../../assets/images/chest.webp')}
         style={styles.image}
-        resizeMode="contain"
+        contentFit="contain"
+        cachePolicy="memory-disk"
       />
     </Animated.View>
   );

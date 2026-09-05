@@ -1,7 +1,7 @@
 import { StatusBar } from 'expo-status-bar';
 import { AppState, BackHandler, StyleSheet, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import mobileAds, { MaxAdContentRating } from 'react-native-google-mobile-ads';
 import { requestTrackingPermissionsAsync } from 'expo-tracking-transparency';
 import { isRealDevice } from './src/utils/deviceSafety';
@@ -42,6 +42,10 @@ import { NoInternetScreen } from './src/screens/NoInternetScreen';
 import { fetchPublicStatus } from './src/api/config';
 
 type OverlayScreen = ProfileDestination | 'profile';
+
+// Stable no-op — TabTooltip is memoized, so an inline `() => {}` at the call
+// site would recreate a "changed" prop every render and defeat that memo.
+const noop = () => {};
 
 function MainApp() {
   const [activeTab, setActiveTab] = useState<TabId>('home');
@@ -173,7 +177,14 @@ function MainApp() {
     if (walletAdUnitId) preloadWalletAd();
   }, [walletAdUnitId]);
 
-  const handleTabChange = (tab: TabId) => {
+  // useCallback (not a plain function) so BottomNavBar — wrapped in
+  // React.memo — can actually skip re-rendering when unrelated MainApp
+  // state changes. preloadNavAd/preloadWalletAd are intentionally left out
+  // of the deps below: they're plain closures recreated every render, but
+  // their behavior is fully determined by navInterstitialUnitId/
+  // walletAdUnitId, which already are dependencies, so listing them would
+  // just force a new handleTabChange (and defeat the memo) every render.
+  const handleTabChange = useCallback((tab: TabId) => {
     if (tab === activeTab) return;
     
     actionsSinceAd.current += 1;
@@ -317,7 +328,8 @@ function MainApp() {
     } else {
       setActiveTab(tab);
     }
-  };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, walletAdUnitId, canWatchAd, isAdPlaying, canShowWallet, setAdPlaying, recordWalletShown, navAdsEnabled, navInterstitialUnitId, canShow, recordShown]);
 
   useEffect(() => {
     const initializeAds = async () => {
@@ -515,7 +527,7 @@ function MainApp() {
         renderScreen()
       )}
       {!chromeHidden ? <BottomNavBar activeTab={activeTab} onTabChange={handleTabChange} /> : null}
-      {!chromeHidden ? <TabTooltip tab={activeTab} onDismiss={() => {}} /> : null}
+      {!chromeHidden ? <TabTooltip tab={activeTab} onDismiss={noop} /> : null}
     </View>
   );
 }

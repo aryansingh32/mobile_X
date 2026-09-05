@@ -282,4 +282,10 @@ const styles = StyleSheet.create({
   },
 });
 
-export default BottomNavBar;
+// MainApp re-renders on plenty of state that has nothing to do with the tab
+// bar (ad-preload bookkeeping, the 30s trackActivity interval, overlay
+// stack changes) — memoizing here means those no longer force this bar's 5
+// icons + floating pill to re-render and re-diff every time. Relies on
+// App.tsx passing a stable `onTabChange` (useCallback) — otherwise this is
+// a no-op since that prop would change identity every render anyway.
+export default React.memo(BottomNavBar);

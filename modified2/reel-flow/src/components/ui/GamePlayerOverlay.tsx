@@ -1,6 +1,7 @@
 import { useShallow } from 'zustand/react/shallow';
 import React, { useEffect, useImperativeHandle, useRef, useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator } from 'react-native';
+import { Image } from 'expo-image';
 import { WebView } from 'react-native-webview';
 import { ArrowLeft } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -9,7 +10,7 @@ import { isAdPenalized, useAdPlacement } from '../../hooks/useAdPlacement';
 import { useAdUnitId } from '../../hooks/useAdUnitId';
 import { useAppStore } from '../../store/useAppStore';
 import { reportAdEvent } from '../../api/config';
-import { Game, gameUrl } from '../../api/games';
+import { Game, gameUrl, thumbnailUrl } from '../../api/games';
 
 type Props = {
   selectedGame: Game | null;
@@ -184,6 +185,20 @@ export const GamePlayerOverlay = React.forwardRef<GamePlayerOverlayHandle, Props
         )}
         {loading && !loadError ? (
           <View style={styles.loader}>
+            {/* Carries the card's already-loaded thumbnail into the loading
+                state instead of cutting to a flat background — the same
+                image the user just tapped stays on screen while the WebView
+                boots, so there's no blank moment between them. */}
+            {!!thumbnailUrl(selectedGame) && (
+              <Image
+                source={{ uri: thumbnailUrl(selectedGame) }}
+                style={StyleSheet.absoluteFillObject}
+                contentFit="cover"
+                cachePolicy="memory-disk"
+                blurRadius={12}
+              />
+            )}
+            <View style={styles.loaderScrim} />
             <ActivityIndicator color={selectedGame.accent} />
             <Text style={styles.loaderText}>Loading game</Text>
           </View>
@@ -253,6 +268,11 @@ const styles = StyleSheet.create({
     backgroundColor: '#111',
     alignItems: 'center',
     justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  loaderScrim: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(17,17,17,0.55)',
   },
   loaderText: {
     color: 'rgba(255,255,255,0.6)',
