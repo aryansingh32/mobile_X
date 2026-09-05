@@ -70,7 +70,7 @@ export const DailyMissionsScreen = ({ onBack }: { onBack: () => void }) => {
           <Gift size={32} color={COLORS.yellow} />
           <View style={{flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', justifyContent: 'center', marginTop: SPACING.sm}}>
             <Text style={[styles.heroTitle, {marginTop: 0}]}>Complete all missions to get {totalReward || 100} bonus </Text>
-            <VIBIcon size={16} />
+            <VIBIcon size={16} animated />
           </View>
         </View>
 

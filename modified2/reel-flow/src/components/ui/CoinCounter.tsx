@@ -66,7 +66,7 @@ const CoinCounter = ({ value, size = 'md' }: CoinCounterProps) => {
   return (
     <View style={styles.row}>
       <Text style={[styles.value, { fontSize: fontSizes[size] }]}>{displayValue.toLocaleString()}</Text>
-      <VIBIcon size={fontSizes[size]} style={styles.coin} />
+      <VIBIcon size={fontSizes[size]} style={styles.coin} animated />
     </View>
   );
 };

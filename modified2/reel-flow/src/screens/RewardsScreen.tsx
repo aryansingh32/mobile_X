@@ -164,7 +164,7 @@ export const RewardsScreen = () => {
         <Text style={styles.headerTitle}>Earn More</Text>
         <View style={styles.balanceBadge}>
           <Text style={styles.balanceText}>{coinBalance}</Text>
-          <VIBIcon size={16} style={{ marginLeft: 4 }} />
+          <VIBIcon size={16} style={{ marginLeft: 4 }} animated />
         </View>
       </View>
 
@@ -202,7 +202,7 @@ export const RewardsScreen = () => {
                 <View style={styles.taskAction}>
                   <View style={styles.rewardBadge}>
                     <Text style={styles.rewardText}>+{task.reward}</Text>
-                    <VIBIcon size={12} style={{ marginLeft: 2 }} />
+                    <VIBIcon size={12} style={{ marginLeft: 2 }} animated />
                   </View>
                   <TouchableOpacity
                     style={[styles.startButton, busyTaskId === task.id && styles.buttonDisabled]}
@@ -239,10 +239,10 @@ export const RewardsScreen = () => {
                 <Text style={styles.statLabel}>Friends Referred</Text>
               </View>
               <View style={styles.statCard}>
-                <VIBIcon size={24} />
+                <VIBIcon size={24} animated />
                 <Text style={styles.statValue}>{referralStats?.earnedCoins || 0}</Text>
                 <View style={{flexDirection: 'row', alignItems: 'center'}}>
-                  <VIBIcon size={12} />
+                  <VIBIcon size={12} animated />
                   <Text style={styles.statLabel}> Earned</Text>
                 </View>
               </View>
@@ -254,7 +254,7 @@ export const RewardsScreen = () => {
                 {referralStats?.tier === 1 ? (
                   <View style={{flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', justifyContent: 'center'}}>
                     <Text style={styles.tierDesc}>Earn 500 </Text>
-                    <VIBIcon size={14} style={{ marginHorizontal: 2 }} />
+                    <VIBIcon size={14} style={{ marginHorizontal: 2 }} animated />
                     <Text style={styles.tierDesc}> from referrals to unlock Tier 2 (15% commission)</Text>
                   </View>
                 ) : (

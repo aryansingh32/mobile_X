@@ -134,7 +134,7 @@ const DiscoverCardImpl: React.FC<Props> = ({ data, index, scrollY, onPress, isLo
                 {rewardCoins > 0 ? (
                   <View style={{flexDirection: 'row', alignItems: 'center'}}>
                     <Text style={{color: '#FFF', fontSize: 13, fontWeight: '700'}}>Watch Video, Earn {rewardCoins} </Text>
-                    <VIBIcon size={22} style={{ marginHorizontal: 2 }} />
+                    <VIBIcon size={22} style={{ marginHorizontal: 2 }} animated />
                   </View>
                 ) : 'Watch Sponsored Video'}
               </Text>
@@ -145,7 +145,7 @@ const DiscoverCardImpl: React.FC<Props> = ({ data, index, scrollY, onPress, isLo
                   {rewardCoins > 0 ? (
                     <View style={{flexDirection: 'row', alignItems: 'center'}}>
                       <Text style={{color: '#FFD700', fontSize: 12, fontWeight: '700'}}>{rewardCoins} </Text>
-                      <VIBIcon size={14} style={{ marginHorizontal: 2 }} />
+                      <VIBIcon size={14} style={{ marginHorizontal: 2 }} animated />
                       <Text style={{color: '#FFD700', fontSize: 12, fontWeight: '700'}}> Reward</Text>
                     </View>
                   ) : 'Reward Video'}

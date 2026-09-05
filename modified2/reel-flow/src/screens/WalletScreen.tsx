@@ -72,7 +72,7 @@ const WalletCatalogCardImpl = ({
         {soldOut ? 'Sold out' : item.availableStock === -1 ? 'Available' : `${item.availableStock} available`}
       </Text>
       <View style={styles.costRow}>
-        <VIBIcon size={14} />
+        <VIBIcon size={14} animated />
         <Text style={styles.costText}>{item.coinCost}</Text>
       </View>
       <Text style={styles.valueText}>≈ ₹{cashValue}</Text>
@@ -485,7 +485,7 @@ export const WalletScreen = () => {
             <Text style={styles.thresholdLabel}>Minimum redemption</Text>
             <View style={{flexDirection: 'row', alignItems: 'center'}}>
               <Text style={styles.thresholdValue}>{minWithdrawalCoins} </Text>
-              <VIBIcon size={14} />
+              <VIBIcon size={14} animated />
             </View>
           </View>
           <Text style={styles.thresholdSub}>₹{minInr} at the current exchange rate</Text>

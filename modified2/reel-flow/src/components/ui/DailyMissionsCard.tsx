@@ -79,7 +79,7 @@ export const DailyMissionsCard = ({ missions, onMoreMissions, onClaimReward }: D
           <Text style={styles.title}>Daily Missions</Text>
           <View style={{flexDirection: 'row', alignItems: 'center'}}>
             <Text style={styles.subtitle}>Complete all missions to get bonus </Text>
-            <VIBIcon size={12} />
+            <VIBIcon size={12} animated />
           </View>
           <TouchableOpacity style={styles.moreButton} onPress={onMoreMissions}>
             <Text style={styles.moreButtonText}>View All</Text>
@@ -131,7 +131,7 @@ export const DailyMissionsCard = ({ missions, onMoreMissions, onClaimReward }: D
                     </TouchableOpacity>
                   ) : (
                     <View style={styles.rewardBadge}>
-                      <VIBIcon size={12} />
+                      <VIBIcon size={12} animated />
                       <Text style={styles.rewardText}>{reward}</Text>
                     </View>
                   )}

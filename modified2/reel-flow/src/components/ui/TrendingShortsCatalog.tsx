@@ -133,7 +133,7 @@ export const TrendingShortsCatalog = ({ onVideoPress, onViewMore }: TrendingShor
 
                   {/* VIB reward chip — bottom */}
                   <View style={styles.rewardChip}>
-                    <VIBIcon size={14} />
+                    <VIBIcon size={14} animated />
                   </View>
                 </View>
 

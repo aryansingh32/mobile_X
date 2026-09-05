@@ -105,7 +105,7 @@ export const LeaderboardScreen = ({ onBack }: { onBack: () => void }) => {
         <LinearGradient colors={['rgba(255,215,0,0.15)', 'rgba(255,165,0,0.05)']} style={styles.stickyFooter}>
           <View style={{flexDirection: 'row', alignItems: 'center'}}>
             <Text style={styles.stickyText}>Your Rank: {you.rank}, {you.coins.toLocaleString()} </Text>
-            <VIBIcon size={18} />
+            <VIBIcon size={18} animated />
           </View>
         </LinearGradient>
       ) : null}

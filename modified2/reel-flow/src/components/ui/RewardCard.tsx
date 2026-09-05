@@ -35,7 +35,7 @@ const RewardCard = ({ coins, onWatch, onSkip, duration = '~30 seconds', claimed 
       {/* Left Icon Area — VIB logo */}
       <View style={styles.iconContainer}>
         <View style={[styles.iconGlow, claimed && styles.iconGlowClaimed]}>
-          <VIBIcon size={36} />
+          <VIBIcon size={36} animated />
         </View>
       </View>
 
