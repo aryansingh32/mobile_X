@@ -43,6 +43,7 @@ model User {
   referredBy      Referral?        @relation("ReferredRelation")
   suggestions     RewardSuggestion[]
   affiliatePurchases AffiliatePurchase[]
+  offerwallCompletions OfferwallCompletion[]
   notifications   Notification[]
   abAllocations   ABTestAllocation[]
   dailyStats      DailyUserStats[]
@@ -175,6 +176,50 @@ model UserMissions {
   mission     Missions @relation(fields: [missionId], references: [id])
   progress    Int      @default(0)
   completedAt DateTime?
+}
+
+// Admin-managed offerwall task catalog, replacing the old hardcoded demo
+// task list. Completion is self-attested by the client (same trust model
+// the demo tasks always used) and auto-credits once per user per task —
+// there's no live third-party offerwall network wired in, so this is the
+// same "admin curates, no automated verification" pattern already used for
+// the affiliate marketplace. offerwall.ts's /postback route (a real,
+// signature-verified S2S webhook) is independent of this model and stays
+// available for whenever a real network is integrated.
+model OfferwallTask {
+  id          Int      @id @default(autoincrement())
+  title       String
+  description String
+  imageUrl    String?
+  rewardCoins Int
+  type        String   // INSTALL | SURVEY | VIDEO | SIGNUP | REVIEW | OTHER
+  externalUrl String?  // opened (if set) when the user taps to complete
+  isActive    Boolean  @default(true)
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  updatedBy   Int?
+  completions OfferwallCompletion[]
+
+  @@index([isActive, sortOrder])
+}
+
+model OfferwallCompletion {
+  id          Int            @id @default(autoincrement())
+  userId      Int
+  user        User           @relation(fields: [userId], references: [id])
+  // Nullable + SetNull, with a denormalized title snapshot: mirrors
+  // AffiliatePurchase's productId/productTitle pattern so deleting a task
+  // later doesn't fail with a foreign-key error or erase what this
+  // completion record was for.
+  taskId      Int?
+  task        OfferwallTask? @relation(fields: [taskId], references: [id], onDelete: SetNull)
+  taskTitle   String         // denormalized snapshot — survives task edits/deletion
+  rewardCoins Int            // snapshotted from task.rewardCoins at completion time
+  completedAt DateTime       @default(now())
+
+  @@unique([userId, taskId])
+  @@index([taskId])
 }
 
 model Badges {

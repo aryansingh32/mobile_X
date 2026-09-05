@@ -1,10 +1,10 @@
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useShallow } from 'zustand/react/shallow';
 import React, { useState, useRef, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl, Share, Image } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl, Share, Image, Linking } from 'react-native';
 import { useAppStore } from '../store/useAppStore';
 import { Shimmer } from '../components/ui/Shimmer';
-import { completeTask, getOfferwallTasks } from '../api/offerwall';
+import { completeTask, getOfferwallTasks, type OfferwallTask } from '../api/offerwall';
 import { getReferralStats } from '../api/referral';
 import { claimDailyBonus, getDailyMissions, getProfile } from '../api/user';
 import { Coins, CheckSquare, Gift, Users, Copy, Share2 } from 'lucide-react-native';
@@ -31,11 +31,11 @@ export const RewardsScreen = React.memo(() => {
   const [activeTab, setActiveTab] = useState<'shop' | 'tasks' | 'daily' | 'referrals'>(() => (storeEnabled ? 'shop' : 'tasks'));
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [tasks, setTasks] = useState<any[]>([]);
+  const [tasks, setTasks] = useState<OfferwallTask[]>([]);
   const [referralStats, setReferralStats] = useState<any>(null);
   const [missions, setMissions] = useState<any[]>([]);
   const [error, setError] = useState('');
-  const [busyTaskId, setBusyTaskId] = useState<string | null>(null);
+  const [busyTaskId, setBusyTaskId] = useState<number | null>(null);
   const [rainAmount, setRainAmount] = useState(0);
   const [showRain, setShowRain] = useState(false);
   const { showToast } = useToast();
@@ -86,7 +86,15 @@ export const RewardsScreen = React.memo(() => {
     showToast('Referral code copied', 'success');
   };
 
-  const handleTask = async (taskId: string) => {
+  const handleTask = async (task: OfferwallTask) => {
+    // No third-party network verifies these — opening the task's own link
+    // (if it has one) is the only real "did they engage" signal available,
+    // so send them there before crediting rather than crediting on a tap
+    // that never left the app.
+    if (task.externalUrl) {
+      Linking.openURL(task.externalUrl).catch(() => {});
+    }
+    const taskId = task.id;
     try {
       if (mountedRef.current) setBusyTaskId(taskId);
       const result = await completeTask(taskId);
@@ -201,13 +209,12 @@ export const RewardsScreen = React.memo(() => {
           </View>
         ) : activeTab === 'tasks' ? (
           <View>
-            <View style={styles.demoBanner}>
-              <Text style={styles.demoText}>Level-gated tasks unlock based on your account progress. Sponsored offers appear here when enabled.</Text>
-            </View>
-            {tasks.map((task, idx) => (
-              <View key={task.id || idx} style={styles.taskCard}>
+            {tasks.length === 0 ? (
+              <Text style={styles.emptyText}>No tasks available right now — check back later!</Text>
+            ) : tasks.map((task) => (
+              <View key={task.id} style={styles.taskCard}>
                 <View style={styles.taskIconContainer}>
-                  {task.type === 'INSTALL' ? <CheckSquare color="#FFF" size={24} /> : <Gift color="#FFF" size={24} />}
+                  {task.type === 'INSTALL' || task.type === 'SIGNUP' ? <CheckSquare color="#FFF" size={24} /> : <Gift color="#FFF" size={24} />}
                 </View>
                 <View style={styles.taskInfo}>
                   <Text style={styles.taskTitle}>{task.title}</Text>
@@ -215,12 +222,12 @@ export const RewardsScreen = React.memo(() => {
                 </View>
                 <View style={styles.taskAction}>
                   <View style={styles.rewardBadge}>
-                    <Text style={styles.rewardText}>+{task.reward}</Text>
+                    <Text style={styles.rewardText}>+{task.rewardCoins}</Text>
                     <VIBIcon size={12} style={{ marginLeft: 2 }} animated />
                   </View>
                   <TouchableOpacity
                     style={[styles.startButton, busyTaskId === task.id && styles.buttonDisabled]}
-                    onPress={() => handleTask(String(task.id))}
+                    onPress={() => handleTask(task)}
                     disabled={busyTaskId !== null}
                   >
                     <Text style={styles.startButtonText}>{busyTaskId === task.id ? 'Working…' : 'Complete'}</Text>
@@ -368,15 +375,6 @@ const styles = StyleSheet.create({
   },
   activeTabText: { color: '#FFF' },
   content: { flex: 1, padding: 16 },
-  demoBanner: {
-    backgroundColor: 'rgba(255,77,26,0.1)',
-    borderWidth: 1,
-    borderColor: '#FF4D1A',
-    padding: 12,
-    borderRadius: 8,
-    marginBottom: 16,
-  },
-  demoText: { color: '#FF4D1A', fontSize: 12, textAlign: 'center' },
   taskCard: {
     backgroundColor: '#1A1A1A',
     borderRadius: 12,

@@ -13,7 +13,6 @@ async function main() {
     { key: 'discover_ad_interval_max', value: '6' },
     { key: 'streak_bonus_7', value: '100' },
     { key: 'streak_bonus_30', value: '500' },
-    { key: 'offerwall_demo_mode', value: 'true' },
     { key: 'ad_activation_delay_ms', value: '5000' },
     { key: 'post_ad_lockout_ms', value: '1500' },
     { key: 'min_withdrawal_coins', value: '500' },
