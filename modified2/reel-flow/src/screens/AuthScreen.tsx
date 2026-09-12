@@ -16,6 +16,7 @@ import { MOTION } from '../constants/theme';
 import { FallingEmbers } from '../components/ui/FallingEmbers';
 import { Shimmer } from '../components/ui/Shimmer';
 import AutoMarquee from '../components/ui/AutoMarquee';
+import { useContent } from '../hooks/useContent';
 
 const FloatingChip = ({ text, delay = 0, style }: { text: React.ReactNode, delay?: number, style?: any }) => {
   const floatAnim = useRef(new Animated.Value(0)).current;
@@ -105,6 +106,12 @@ const GoogleSignInButton = ({ onPress, loading }: { onPress: () => void; loading
 
 export const AuthScreen = () => {
   const insets = useSafeAreaInsets();
+
+  // Admin-set via Content Strings (key: auth.social_proof, screen: AUTH) —
+  // e.g. "Join 200,000+ earners" or "4.6★ on Play Store". Empty by default
+  // so this screen never shows a fabricated number; it appears only once an
+  // admin fills in a real one.
+  const socialProof = useContent('auth.social_proof', '');
 
   const { setUser } = useAppStore(useShallow(s => ({ setUser: s.setUser })));
   const [loading, setLoading] = useState(false);
@@ -239,6 +246,8 @@ export const AuthScreen = () => {
           </View>
         </View>
 
+        {!!socialProof && <Text style={styles.socialProofText}>{socialProof}</Text>}
+
         {/* Running Marquee Text below Badges - Deferred */}
         {isImageLoaded && <AutoMarquee />}
 
@@ -348,6 +357,13 @@ const styles = StyleSheet.create({
   trustBadgeSub: {
     color: 'rgba(255,255,255,0.6)',
     fontSize: 13,
+  },
+  socialProofText: {
+    color: '#FFD700',
+    fontSize: 13,
+    fontWeight: '700',
+    textAlign: 'center',
+    marginTop: 12,
   },
   actionArea: {
     marginTop: 'auto',

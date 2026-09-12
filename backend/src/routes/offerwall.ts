@@ -99,6 +99,41 @@ router.post('/complete', authenticate, async (req: any, res) => {
   }
 });
 
+// GET /api/webhooks/offerwall/wall — real third-party offerwall network entry
+// point. Admin sets `offerwall_provider_enabled` and `offerwall_wall_url` via
+// the admin panel (Economy Control → Offerwall Provider); the latter is
+// whatever wall URL the chosen network (AdGate Media, OfferToro, CPX
+// Research, Torox, ...) gives you, with `{{USER_ID}}` / `{{DEVICE_ID}}`
+// placeholders substituted here so the same template works for any network's
+// expected subid/user-id query param name. The network's own S2S reward
+// callback still lands on /postback above, authenticated by
+// OFFERWALL_POSTBACK_SECRET — this route only ever hands back a URL to open,
+// it never grants coins itself.
+router.get('/wall', authenticate, async (req: any, res) => {
+  try {
+    const [enabledConfig, urlConfig] = await Promise.all([
+      prisma.appConfig.findUnique({ where: { key: 'offerwall_provider_enabled' } }),
+      prisma.appConfig.findUnique({ where: { key: 'offerwall_wall_url' } }),
+    ]);
+    const enabled = enabledConfig?.value?.trim().toLowerCase() === 'true';
+    const template = urlConfig?.value?.trim();
+
+    if (!enabled || !template) {
+      res.json({ enabled: false, url: null });
+      return;
+    }
+
+    const deviceId = typeof req.query.deviceId === 'string' ? req.query.deviceId : '';
+    const url = template
+      .replaceAll('{{USER_ID}}', String(req.user.id))
+      .replaceAll('{{DEVICE_ID}}', encodeURIComponent(deviceId));
+
+    res.json({ enabled: true, url });
+  } catch (error: any) {
+    sendServerError(res, error);
+  }
+});
+
 // GET/POST /api/webhooks/offerwall/postback — real offerwall network webhook.
 //
 // This is deliberately NOT behind verifyApiSignature: that scheme signs a

@@ -120,12 +120,6 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onGetStarted, onLo
           <Text style={styles.tagline}>Watch. Earn. Repeat.</Text>
           <Text style={styles.subtitle}>Turn your screen time into real rewards.</Text>
         </View>
-
-        <View style={styles.dotsContainer}>
-          <View style={[styles.dot, styles.dotActive]} />
-          <View style={styles.dot} />
-          <View style={styles.dot} />
-        </View>
       </Animated.View>
 
       <Animated.View style={[styles.footer, { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }]}>
@@ -209,20 +203,6 @@ const styles = StyleSheet.create({
     fontSize: 15,
     textAlign: 'center',
     lineHeight: 22,
-  },
-  dotsContainer: {
-    flexDirection: 'row',
-    gap: 10,
-    marginBottom: 20,
-  },
-  dot: {
-    width: 24,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: 'rgba(255, 215, 0, 0.2)',
-  },
-  dotActive: {
-    backgroundColor: '#FFD700',
   },
   footer: {
     paddingHorizontal: 24,

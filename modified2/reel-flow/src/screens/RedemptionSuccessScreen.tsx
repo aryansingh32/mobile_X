@@ -25,8 +25,9 @@ export const RedemptionSuccessScreen: React.FC<RedemptionSuccessScreenProps> = (
       {coinsSpent > 0 && (
         <View style={styles.coinsRow}>
           <View style={{flexDirection: 'row', alignItems: 'center'}}>
-            <Text style={styles.coinsText}>-{coinsSpent} </Text>
+            <Text style={styles.coinsText}>{coinsSpent} </Text>
             <VIBIcon size={24} animated />
+            <Text style={styles.coinsText}> redeemed</Text>
           </View>
         </View>
       )}

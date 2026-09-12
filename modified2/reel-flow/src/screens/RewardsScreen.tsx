@@ -4,10 +4,10 @@ import React, { useState, useRef, useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl, Share, Image, Linking } from 'react-native';
 import { useAppStore } from '../store/useAppStore';
 import { Shimmer } from '../components/ui/Shimmer';
-import { completeTask, getOfferwallTasks, type OfferwallTask } from '../api/offerwall';
+import { completeTask, getOfferwallTasks, getOfferwallWall, type OfferwallTask } from '../api/offerwall';
 import { getReferralStats } from '../api/referral';
 import { claimDailyBonus, getDailyMissions, getProfile } from '../api/user';
-import { Coins, CheckSquare, Gift, Users, Copy, Share2 } from 'lucide-react-native';
+import { Coins, CheckSquare, Gift, Users, Copy, Share2, Sparkles } from 'lucide-react-native';
 import * as Clipboard from 'expo-clipboard';
 import DailyStreakRow from '../components/ui/DailyStreakRow';
 import CoinRain from '../components/ui/CoinRain';
@@ -15,6 +15,8 @@ import { useToast } from '../components/ui/Toast';
 import { VIBIcon } from '../components/ui/VIBIcon';
 import { StoreScreen } from '../components/affiliate/StoreScreen';
 import { useFeatureFlag } from '../hooks/useFeatureFlag';
+import { OfferwallWebViewOverlay } from '../components/ui/OfferwallWebViewOverlay';
+import { getDeviceId } from '../utils/deviceSafety';
 
 export const RewardsScreen = React.memo(() => {
   const insets = useSafeAreaInsets();
@@ -38,7 +40,21 @@ export const RewardsScreen = React.memo(() => {
   const [busyTaskId, setBusyTaskId] = useState<number | null>(null);
   const [rainAmount, setRainAmount] = useState(0);
   const [showRain, setShowRain] = useState(false);
+  const [wallUrl, setWallUrl] = useState<string | null>(null);
+  const [showWall, setShowWall] = useState(false);
   const { showToast } = useToast();
+
+  // Real third-party offerwall — independent of the admin-curated task
+  // catalog fetched per-tab below, so it's fetched once and doesn't need to
+  // re-run on tab switches.
+  useEffect(() => {
+    let mounted = true;
+    getDeviceId()
+      .then((deviceId) => getOfferwallWall(deviceId))
+      .then((res) => { if (mounted && res.enabled && res.url) setWallUrl(res.url); })
+      .catch(() => {});
+    return () => { mounted = false; };
+  }, []);
 
   const loadData = async (mounted = true) => {
     try {
@@ -209,6 +225,17 @@ export const RewardsScreen = React.memo(() => {
           </View>
         ) : activeTab === 'tasks' ? (
           <View>
+            {wallUrl && (
+              <TouchableOpacity style={styles.wallCard} onPress={() => setShowWall(true)} activeOpacity={0.85}>
+                <View style={styles.taskIconContainer}>
+                  <Sparkles color="#FFD700" size={24} />
+                </View>
+                <View style={styles.taskInfo}>
+                  <Text style={styles.taskTitle}>More Offers</Text>
+                  <Text style={styles.taskDesc}>Surveys, installs & more from our partner network</Text>
+                </View>
+              </TouchableOpacity>
+            )}
             {tasks.length === 0 ? (
               <Text style={styles.emptyText}>No tasks available right now — check back later!</Text>
             ) : tasks.map((task) => (
@@ -286,22 +313,20 @@ export const RewardsScreen = React.memo(() => {
           </View>
         ) : (
           <View>
+            {/* A second "claim daily bonus" CTA here (in addition to
+                DailyStreakRow's own Claim button, right above) used to split
+                attention on the single most important habit-loop moment in
+                the app. This banner is now info-only — claiming happens in
+                exactly one place. */}
             <DailyStreakRow streak={user?.streak || 0} claimedToday={!dailyBonusAvailable} onClaim={dailyBonusAvailable ? handleClaimDailyBonus : undefined} />
-            <View style={styles.dailyBonusBanner}>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.dailyBonusTitle}>Daily bonus</Text>
-                <Text style={styles.dailyBonusText}>
-                  {dailyBonusAvailable ? 'Claim your login bonus now.' : `Next bonus in ~${nextResetHours}h.`}
-                </Text>
+            {!dailyBonusAvailable && (
+              <View style={styles.dailyBonusBanner}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.dailyBonusTitle}>Daily bonus</Text>
+                  <Text style={styles.dailyBonusText}>Next bonus in ~{nextResetHours}h.</Text>
+                </View>
               </View>
-              <TouchableOpacity
-                style={[styles.claimButton, !dailyBonusAvailable && styles.buttonDisabled]}
-                onPress={handleClaimDailyBonus}
-                disabled={!dailyBonusAvailable}
-              >
-                <Text style={styles.claimButtonText}>{dailyBonusAvailable ? 'Claim' : 'Claimed'}</Text>
-              </TouchableOpacity>
-            </View>
+            )}
             {missions.length === 0 ? (
               <View style={styles.emptyPanel}>
                 <Text style={styles.emptyTitle}>No daily missions are active right now.</Text>
@@ -328,6 +353,7 @@ export const RewardsScreen = React.memo(() => {
       </ScrollView>
       )}
       <CoinRain visible={showRain} amount={rainAmount} onComplete={() => setShowRain(false)} />
+      {showWall && <OfferwallWebViewOverlay url={wallUrl} onClose={() => setShowWall(false)} />}
     </View>
   );
 });
@@ -383,6 +409,16 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 12,
   },
+  wallCard: {
+    backgroundColor: '#1A1A1A',
+    borderRadius: 12,
+    padding: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255,215,0,0.25)',
+  },
   taskIconContainer: {
     width: 48, height: 48, borderRadius: 24, backgroundColor: '#2A2A2A',
     alignItems: 'center', justifyContent: 'center', marginRight: 16,
@@ -434,13 +470,6 @@ const styles = StyleSheet.create({
   },
   dailyBonusTitle: { color: '#FFF', fontSize: 15, fontWeight: '800', marginBottom: 4 },
   dailyBonusText: { color: 'rgba(255,255,255,0.55)', fontSize: 12, lineHeight: 18 },
-  claimButton: {
-    backgroundColor: '#FFD700',
-    paddingHorizontal: 18,
-    paddingVertical: 10,
-    borderRadius: 12,
-  },
-  claimButtonText: { color: '#000', fontWeight: '900' },
   emptyPanel: {
     backgroundColor: '#1A1A1A',
     borderRadius: 12,

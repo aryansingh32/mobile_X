@@ -189,6 +189,11 @@ const AffiliateProductsPage = () => {
               <div>
                 <label className="block text-sm text-gray-400 mb-1">Affiliate Buy Link *</label>
                 <input required className="w-full bg-[#111] border border-[#333] rounded px-3 py-2 text-white focus:outline-none focus:border-[var(--accent)]" value={formData.affiliateUrl} onChange={(e) => setFormData({ ...formData, affiliateUrl: e.target.value })} placeholder="https://amazon.in/..." />
+                {formData.platform === 'AMAZON' && (
+                  <p className="text-xs text-gray-500 mt-1">
+                    No need to add your own tracking tag — the store's Amazon Associate ID (set in Economy Control → Affiliate Store) is appended automatically if this link doesn't already have one.
+                  </p>
+                )}
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>

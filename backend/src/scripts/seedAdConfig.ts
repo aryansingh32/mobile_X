@@ -21,6 +21,16 @@ const ADMOB_CONFIGS: Array<{ key: string; value: string }> = [
   { key: 'admob_android_news_banner_ad_unit_id',        value: 'ca-app-pub-9240675969662866/9296637173' },
 ];
 
+// Non-AdMob monetization keys that need a real value present from the start
+// rather than showing "Not set" in the admin panel until someone happens to
+// save it once. offerwall_provider_enabled defaults to 'false' — no real
+// offerwall network is wired in yet, so the in-app entry point stays hidden
+// until an admin sets offerwall_wall_url and flips this on.
+const MONETIZATION_CONFIGS: Array<{ key: string; value: string }> = [
+  { key: 'amazon_associate_tag', value: 'ascend0ab-21' },
+  { key: 'offerwall_provider_enabled', value: 'false' },
+];
+
 const AD_REWARD_RULES = [
   {
     adType: 'REWARDED',
@@ -199,6 +209,16 @@ async function main() {
 
   // 1. Upsert AdMob config keys
   for (const config of ADMOB_CONFIGS) {
+    await prisma.appConfig.upsert({
+      where: { key: config.key },
+      update: { value: config.value },
+      create: { key: config.key, value: config.value },
+    });
+    console.log(`  ✓ ${config.key}`);
+  }
+
+  console.log('\n🛒 Seeding monetization config (affiliate tag, offerwall provider)...');
+  for (const config of MONETIZATION_CONFIGS) {
     await prisma.appConfig.upsert({
       where: { key: config.key },
       update: { value: config.value },

@@ -10,6 +10,37 @@ import { sendServerError } from '../utils/errorResponse';
 // not as a fraud/economy control.
 const CLICK_COOLDOWN_MS = 5 * 60 * 1000;
 
+const DEFAULT_AMAZON_ASSOCIATE_TAG = 'ascend0ab-21';
+const AMAZON_HOSTNAME_RE = /(^|\.)amazon\.[a-z.]+$/i;
+
+const getAmazonAssociateTag = async (): Promise<string> => {
+  const config = await prisma.appConfig.findUnique({ where: { key: 'amazon_associate_tag' } });
+  return config?.value?.trim() || DEFAULT_AMAZON_ASSOCIATE_TAG;
+};
+
+// Admins paste raw Amazon product links (see AffiliateProducts admin page) —
+// most won't remember to append the store's own associate tag on every
+// single link, and a missing tag means the click generates zero commission.
+// This appends `tag=<store id>` server-side (once, at read time) for any
+// Amazon URL that doesn't already carry one, so the admin-entered link and
+// the actual outbound/tracked link can differ without anyone having to edit
+// every product by hand. Non-Amazon platforms (Flipkart/OTHER) and URLs that
+// already specify a tag are left untouched.
+const withAmazonTag = (affiliateUrl: string, platform: string, tag: string): string => {
+  if (platform !== 'AMAZON') return affiliateUrl;
+  try {
+    const url = new URL(affiliateUrl);
+    if (!AMAZON_HOSTNAME_RE.test(url.hostname)) return affiliateUrl;
+    if (url.searchParams.has('tag')) return affiliateUrl;
+    url.searchParams.set('tag', tag);
+    return url.toString();
+  } catch {
+    // Not a parseable absolute URL — leave whatever the admin entered as-is
+    // rather than guessing at string concatenation.
+    return affiliateUrl;
+  }
+};
+
 export const getAffiliateProducts = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const { section, category } = req.query;
@@ -17,11 +48,15 @@ export const getAffiliateProducts = async (req: AuthRequest, res: Response): Pro
     if (typeof section === 'string' && section.trim()) where.section = section.trim().toUpperCase();
     if (typeof category === 'string' && category.trim()) where.category = category.trim();
 
-    const products = await prisma.affiliateProduct.findMany({
-      where,
-      orderBy: [{ sortOrder: 'asc' }, { createdAt: 'desc' }],
-    });
-    res.json({ data: products });
+    const [products, tag] = await Promise.all([
+      prisma.affiliateProduct.findMany({
+        where,
+        orderBy: [{ sortOrder: 'asc' }, { createdAt: 'desc' }],
+      }),
+      getAmazonAssociateTag(),
+    ]);
+    const data = products.map((p) => ({ ...p, affiliateUrl: withAmazonTag(p.affiliateUrl, p.platform, tag) }));
+    res.json({ data });
   } catch (error: any) {
     sendServerError(res, error);
   }
@@ -82,7 +117,8 @@ export const trackAffiliateClick = async (req: AuthRequest, res: Response): Prom
       ]);
     }
 
-    res.json({ data: { affiliateUrl: product.affiliateUrl } });
+    const tag = await getAmazonAssociateTag();
+    res.json({ data: { affiliateUrl: withAmazonTag(product.affiliateUrl, product.platform, tag) } });
   } catch (error: any) {
     sendServerError(res, error);
   }

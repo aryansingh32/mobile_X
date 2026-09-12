@@ -107,6 +107,17 @@ export const ReferEarnScreen = ({ onBack }: { onBack: () => void }) => {
           </Pressable>
         ) : null}
 
+        {stats ? (
+          <View style={styles.tierCard}>
+            <Text style={styles.tierTitle}>Tier {stats.tier || 1} Status</Text>
+            <Text style={styles.tierDesc}>
+              {(stats.tier || 1) === 1
+                ? 'Earn 500 VIB from referrals to unlock Tier 2 (15% commission)'
+                : 'Keep referring to earn more!'}
+            </Text>
+          </View>
+        ) : null}
+
         <Text style={styles.sectionTitle}>How it Works?</Text>
         <View style={styles.stepsCard}>
           {STEPS.map((step, index) => (
@@ -176,6 +187,17 @@ const styles = StyleSheet.create({
   statValue: { ...TYPOGRAPHY.h1, color: COLORS.yellow },
   statLabel: { ...TYPOGRAPHY.caption, color: COLORS.white_55, marginTop: 4 },
   statsRetryText: { ...TYPOGRAPHY.caption, color: COLORS.yellow, textAlign: 'center', marginTop: SPACING.sm },
+  tierCard: {
+    backgroundColor: COLORS.bg_card,
+    borderRadius: RADIUS.lg,
+    borderWidth: 1,
+    borderColor: COLORS.border_card,
+    padding: SPACING.lg,
+    alignItems: 'center',
+    marginBottom: SPACING.xl,
+  },
+  tierTitle: { ...TYPOGRAPHY.h3, color: COLORS.yellow, marginBottom: SPACING.xs },
+  tierDesc: { ...TYPOGRAPHY.body, color: COLORS.white_80, textAlign: 'center' },
   sectionTitle: { ...TYPOGRAPHY.h3, color: COLORS.white, marginBottom: SPACING.md },
   stepsCard: {
     backgroundColor: COLORS.bg_card,

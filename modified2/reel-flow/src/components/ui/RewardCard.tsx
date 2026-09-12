@@ -11,9 +11,10 @@ type RewardCardProps = {
   onSkip?: () => void;
   duration?: string;
   claimed?: boolean;
+  claimedSubtitle?: string;
 };
 
-const RewardCard = ({ coins, onWatch, onSkip, duration = '~30 seconds', claimed = false }: RewardCardProps) => {
+const RewardCard = ({ coins, onWatch, onSkip, duration = '~30 seconds', claimed = false, claimedSubtitle }: RewardCardProps) => {
   const watchScale = useRef(new Animated.Value(1)).current;
   const onWatchPressIn = () => {
     Animated.spring(watchScale, { toValue: MOTION.press_scale, useNativeDriver: true, ...MOTION.spring_snappy }).start();
@@ -51,7 +52,7 @@ const RewardCard = ({ coins, onWatch, onSkip, duration = '~30 seconds', claimed 
           )}
         </Text>
         <Text style={styles.subtitle}>
-          {claimed ? 'Come back tomorrow for more rewards' : "Don't skip — watch all the way"}
+          {claimed ? (claimedSubtitle || 'Come back tomorrow for more rewards') : "Don't skip — watch all the way"}
         </Text>
         {!claimed && <Text style={styles.duration}>{duration}</Text>}
       </View>

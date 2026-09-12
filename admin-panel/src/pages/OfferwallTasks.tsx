@@ -132,10 +132,13 @@ const OfferwallTasksPage = () => {
             <ClipboardList className="mr-3 text-[var(--accent)]" /> Offerwall Tasks
           </h1>
           <p className="text-sm text-gray-400 mt-1">
-            Admin-curated tasks shown in the app's Earn tab. No third-party offerwall network is
-            connected — completion is self-attested by the user and pays out once per task, same as
-            any other admin-set reward. The signature-verified <code>/postback</code> webhook stays
-            available separately for whenever a real network is wired in.
+            Admin-curated tasks shown in the app's Earn tab — completion is self-attested by the user
+            and pays out once per task. To also show a real third-party offerwall (many more offers,
+            server-verified completion) alongside these, configure it under{' '}
+            <span className="text-white font-semibold">Economy Control → Offerwall Provider</span>:
+            paste your network's wall URL and flip it on. Its S2S reward postback authenticates
+            against the <code>OFFERWALL_POSTBACK_SECRET</code> backend env var and lands on the same{' '}
+            <code>/postback</code> webhook either way.
           </p>
         </div>
         <button onClick={openCreate} className="bg-[var(--accent)] hover:bg-[#E64518] text-white px-4 py-2 rounded-lg flex items-center transition-colors">

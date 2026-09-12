@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, Check, Edit3, Plus, Radio, Save, Settings, X } from 'lucide-react';
-import { getConfig, updateConfig } from '../services/api';
+import { AlertTriangle, Check, Edit3, Plus, Radio, Save, Settings, Sparkles, X } from 'lucide-react';
+import { getConfig, updateConfig, getContentStrings, updateContentString } from '../services/api';
 
 type ConfigEntry = {
   key: string;
@@ -38,6 +38,9 @@ const descriptions: Record<string, string> = {
   xp_per_coin_ratio: 'Coins earned per 1 XP awarded (e.g. 2 = 1 XP per 2 coins).',
   streak_bonus_7: 'Bonus coins for reaching 7-day streak milestone.',
   streak_bonus_30: 'Bonus coins for reaching 30-day streak milestone.',
+  amazon_associate_tag: "Amazon Associates store/tracking ID. Auto-appended as ?tag=... to any Amazon affiliate product link that doesn't already specify one — products in Affiliate Products never need it typed in manually.",
+  offerwall_provider_enabled: 'Set to "true" to show the real third-party offerwall (More Offers) in the app once a wall URL is configured below. "false" hides it — admin-curated Offerwall Tasks keep working either way.',
+  offerwall_wall_url: 'Wall URL from your offerwall network (AdGate Media, OfferToro, CPX Research, Torox, etc). Use the literal placeholders {{USER_ID}} and {{DEVICE_ID}} wherever the network wants your user/subid — they are substituted per-request. The network\'s S2S reward postback is separately authenticated by OFFERWALL_POSTBACK_SECRET on the backend.',
 };
 
 const categories: ConfigCategory[] = [
@@ -84,6 +87,18 @@ const categories: ConfigCategory[] = [
     subtitle: 'Runtime behavior switches and interaction timing.',
     tone: 'behavior',
     keys: ['post_ad_lockout_ms', 'referral_percent'],
+  },
+  {
+    title: '🛒 Affiliate Store',
+    subtitle: 'Amazon/Flipkart affiliate marketplace tracking.',
+    tone: 'economy',
+    keys: ['amazon_associate_tag'],
+  },
+  {
+    title: '🎯 Offerwall Provider',
+    subtitle: 'Real third-party offerwall network wired alongside the admin-curated Offerwall Tasks.',
+    tone: 'ads',
+    keys: ['offerwall_provider_enabled', 'offerwall_wall_url'],
   },
 ];
 
@@ -144,6 +159,14 @@ const ConfigPage = () => {
   const [error, setError] = useState('');
   const [savingKey, setSavingKey] = useState<string | null>(null);
 
+  // Auth screen social-proof line ("Join 200,000+ earners", "4.6★ on Play
+  // Store", etc.) — a Content String, not an AppConfig key, so it's edited
+  // separately from the k/v grid below. Empty by default: the app hides this
+  // line entirely until a real value is set here.
+  const [socialProof, setSocialProof] = useState('');
+  const [socialProofSaving, setSocialProofSaving] = useState(false);
+  const [socialProofSaved, setSocialProofSaved] = useState(false);
+
   useEffect(() => {
     getConfig()
       .then(res => setConfigs(res.data.data || []))
@@ -152,7 +175,31 @@ const ConfigPage = () => {
         setError('Failed to load configuration.');
       })
       .finally(() => setLoading(false));
+
+    getContentStrings('AUTH')
+      .then(res => {
+        const entry = (res.data.data || []).find((s: any) => s.key === 'auth.social_proof');
+        if (entry) setSocialProof(entry.value || '');
+      })
+      .catch(() => undefined);
   }, []);
+
+  const handleSaveSocialProof = async () => {
+    try {
+      setSocialProofSaving(true);
+      await updateContentString('auth.social_proof', {
+        screen: 'AUTH',
+        value: socialProof.trim(),
+        description: 'Social-proof line shown under the trust badges on the sign-in screen.',
+      });
+      setSocialProofSaved(true);
+      setTimeout(() => setSocialProofSaved(false), 2000);
+    } catch (err: any) {
+      setError(err.response?.data?.error || 'Failed to save social proof text.');
+    } finally {
+      setSocialProofSaving(false);
+    }
+  };
 
   const configMap = useMemo(() => new Map(configs.map(config => [config.key, config])), [configs]);
   const configuredKeys = new Set(configs.map(config => config.key));
@@ -335,6 +382,33 @@ const ConfigPage = () => {
           {error}
         </div>
       )}
+
+      <section className="mb-6 rounded-[24px] border border-yellow-400/25 bg-[#161616] p-5 shadow-[0_0_40px_rgba(255,215,0,0.08)]">
+        <div className="mb-4 flex items-center gap-2">
+          <Sparkles size={20} className="text-yellow-300" />
+          <div>
+            <h2 className="text-xl font-black text-white">Sign-in Trust Copy</h2>
+            <p className="mt-1 text-sm text-white/50">
+              A social-proof line shown under the trust badges on the sign-in screen. Leave blank to hide it — never put a number here you can't back up.
+            </p>
+          </div>
+        </div>
+        <div className="flex flex-col gap-3 sm:flex-row">
+          <input
+            value={socialProof}
+            onChange={e => setSocialProof(e.target.value)}
+            placeholder='e.g. "Join 200,000+ earners" or "4.6★ on Play Store"'
+            className="w-full flex-1 rounded-xl border border-white/10 bg-[#0A0A0A] px-3 py-3 text-sm text-white outline-none transition focus:border-[#FFD700]/60 focus:ring-2 focus:ring-[#FFD700]/15"
+          />
+          <button
+            onClick={handleSaveSocialProof}
+            disabled={socialProofSaving}
+            className="inline-flex items-center justify-center rounded-xl bg-[#FFD700] px-5 py-3 text-sm font-black text-black transition hover:bg-yellow-300 disabled:opacity-60"
+          >
+            <Save size={15} className="mr-1.5" /> {socialProofSaving ? 'Saving' : socialProofSaved ? 'Saved ✓' : 'Save'}
+          </button>
+        </div>
+      </section>
 
       <div className="space-y-6">
         {categories.map(category => {

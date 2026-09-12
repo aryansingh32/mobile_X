@@ -43,6 +43,8 @@ const WalletCatalogCardImpl = ({
   const canAfford = coinBalance >= item.coinCost;
   const soldOut = Boolean(item.soldOut);
   const cashValue = (item.coinCost * coinToInrRate).toFixed(2);
+  const shortfall = item.coinCost - coinBalance;
+  const lowStock = !soldOut && item.availableStock !== -1 && item.availableStock <= 5;
   return (
     <TouchableOpacity
       style={[styles.catalogCard, (!canAfford || soldOut) && styles.catalogCardDisabled]}
@@ -68,8 +70,8 @@ const WalletCatalogCardImpl = ({
       )}
       <Text style={styles.itemName}>{item.name}</Text>
       <Text style={styles.itemInr}>₹{item.inrValue}</Text>
-      <Text style={[styles.stockText, soldOut && styles.soldOutText]}>
-        {soldOut ? 'Sold out' : item.availableStock === -1 ? 'Available' : `${item.availableStock} available`}
+      <Text style={[styles.stockText, (soldOut || lowStock) && styles.soldOutText]}>
+        {soldOut ? 'Sold out' : item.availableStock === -1 ? 'Available' : lowStock ? `Only ${item.availableStock} left!` : `${item.availableStock} available`}
       </Text>
       <View style={styles.costRow}>
         <VIBIcon size={14} animated />
@@ -77,7 +79,7 @@ const WalletCatalogCardImpl = ({
       </View>
       <Text style={styles.valueText}>≈ ₹{cashValue}</Text>
       <View style={styles.redeemBtn}>
-        <Text style={styles.redeemBtnText}>{soldOut ? 'Sold out' : canAfford ? 'Redeem' : 'Insufficient balance'}</Text>
+        <Text style={styles.redeemBtnText}>{soldOut ? 'Sold out' : canAfford ? 'Redeem' : `Earn ${shortfall} more`}</Text>
       </View>
     </TouchableOpacity>
   );
@@ -153,15 +155,21 @@ export const WalletScreen = React.memo(() => {
   const [deviceId, setDeviceId] = useState<string | null>(null);
   const [isWalletAdLoading, setIsWalletAdLoading] = useState(false);
   const [walletAdClaimed, setWalletAdClaimed] = useState(false);
+  // Ticking seconds-remaining, surfaced as RewardCard's claimedSubtitle — a
+  // dead "Claimed" button with no visible timer gave no reason to come back
+  // and check; a live countdown turns the cooldown into an open loop instead.
+  const [walletAdCooldownRemaining, setWalletAdCooldownRemaining] = useState(0);
   const [coinRain, setCoinRain] = useState({ visible: false, amount: 0 });
   const preloadedWalletAdRef = useRef<any>(null);
   const preloadedWalletAdReadyRef = useRef(false);
   const walletAdCooldownTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const walletAdCooldownIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
     getDeviceId().then(setDeviceId).catch(() => {});
     return () => {
       if (walletAdCooldownTimerRef.current) clearTimeout(walletAdCooldownTimerRef.current);
+      if (walletAdCooldownIntervalRef.current) clearInterval(walletAdCooldownIntervalRef.current);
     };
   }, []);
 
@@ -250,6 +258,17 @@ export const WalletScreen = React.memo(() => {
       setCoinRain({ visible: true, amount: rewardedCoinAmount });
       setWalletAdClaimed(true);
       if (walletAdCooldownTimerRef.current) clearTimeout(walletAdCooldownTimerRef.current);
+      if (walletAdCooldownIntervalRef.current) clearInterval(walletAdCooldownIntervalRef.current);
+      setWalletAdCooldownRemaining(walletAdCooldownSeconds);
+      walletAdCooldownIntervalRef.current = setInterval(() => {
+        setWalletAdCooldownRemaining((seconds) => {
+          if (seconds <= 1) {
+            if (walletAdCooldownIntervalRef.current) clearInterval(walletAdCooldownIntervalRef.current);
+            return 0;
+          }
+          return seconds - 1;
+        });
+      }, 1000);
       walletAdCooldownTimerRef.current = setTimeout(() => setWalletAdClaimed(false), walletAdCooldownSeconds * 1000);
       reportAdEvent({
         placementKey: 'wallet_rewarded_card',
@@ -513,6 +532,7 @@ export const WalletScreen = React.memo(() => {
               coins={rewardedCoinAmount}
               onWatch={triggerWalletRewardedAd}
               claimed={walletAdClaimed}
+              claimedSubtitle={walletAdCooldownRemaining > 0 ? `Next reward in ${walletAdCooldownRemaining}s` : undefined}
               duration={isWalletAdLoading ? 'Loading ad…' : '~30 seconds'}
             />
           </View>
