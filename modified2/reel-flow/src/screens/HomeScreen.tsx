@@ -1,11 +1,12 @@
 import { useShallow } from 'zustand/react/shallow';
 import React, { useEffect, useState, useMemo, useRef, useImperativeHandle } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl, Alert, Image, Linking } from 'react-native';
+import { Animated, Easing, View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl, Alert, Image, Linking } from 'react-native';
+import { useReducedMotion } from '../hooks/useReducedMotion';
 import { useAppStore } from '../store/useAppStore';
 import { useConfigStore } from '../store/useConfigStore';
 import { Shimmer } from '../components/ui/Shimmer';
 import { getDailyMissions, getProfile, syncStreak } from '../api/user';
-import { Flame, Coins, PlaySquare, Newspaper, CheckSquare, Bell, Gamepad2, X } from 'lucide-react-native';
+import { Flame, Coins, PlaySquare, Newspaper, CheckSquare, Bell, Gamepad2 } from 'lucide-react-native';
 import { COLORS, RADIUS, SPACING, TYPOGRAPHY, MOTION } from '../constants/theme';
 import { LinearGradient } from 'expo-linear-gradient';
 import { FallingEmbers } from '../components/ui/FallingEmbers';
@@ -29,11 +30,8 @@ import { useAdUnitId } from '../hooks/useAdUnitId';
 import { reportAdEvent } from '../api/config';
 import { reportAdEventWithPenaltyCheck, formatAdPenaltyMessage } from '../utils/adFarmingGuard';
 import { fetchCached, invalidateCached, peekCached } from '../utils/requestCache';
-import { getRouletteConfig } from '../api/rewards';
 import { getDeviceId } from '../utils/deviceSafety';
 import CoinRain from '../components/ui/CoinRain';
-import { RouletteWheel, RouletteSlice } from '../components/ui/RouletteWheel';
-import RedemptionSuccessScreen from './RedemptionSuccessScreen';
 import { TrendingShortsCatalog } from '../components/ui/TrendingShortsCatalog';
 import { VIBIcon } from '../components/ui/VIBIcon';
 import { useFeatureFlag } from '../hooks/useFeatureFlag';
@@ -104,6 +102,32 @@ export const HomeScreen = React.memo(React.forwardRef<HomeScreenHandle, HomeScre
   const [refreshing, setRefreshing] = useState(false);
   const [selectedGame, setSelectedGame] = useState<Game | null>(null);
   const gamePlayerRef = useRef<GamePlayerOverlayHandle>(null);
+  const reducedMotion = useReducedMotion();
+
+  // Header (avatar/name/level/balance/streak) is the one "hero" moment on
+  // this screen — a single one-shot entrance, not applied to the dense
+  // scrollable content below it (parallax/glow on every card in a long list
+  // would hurt scroll performance and just be noise on a utility dashboard).
+  const headerAnim = useRef(new Animated.Value(0)).current;
+  const headerGlowAnim = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    Animated.timing(headerAnim, { toValue: 1, duration: 500, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start();
+  }, [headerAnim]);
+  useEffect(() => {
+    if (reducedMotion) return;
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(headerGlowAnim, { toValue: 1, duration: 3400, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+        Animated.timing(headerGlowAnim, { toValue: 0, duration: 3400, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+      ]),
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [headerGlowAnim, reducedMotion]);
+  const headerOpacity = headerAnim;
+  const headerTranslateY = headerAnim.interpolate({ inputRange: [0, 1], outputRange: [-12, 0] });
+  const headerGlowOpacity = headerGlowAnim.interpolate({ inputRange: [0, 1], outputRange: [0.12, 0.22] });
+  const headerGlowScale = headerGlowAnim.interpolate({ inputRange: [0, 1], outputRange: [1, 1.12] });
 
   useImperativeHandle(ref, () => ({
     handleBack: () => gamePlayerRef.current?.handleBack() ?? false,
@@ -111,15 +135,7 @@ export const HomeScreen = React.memo(React.forwardRef<HomeScreenHandle, HomeScre
   const [missions, setMissions] = useState<any[]>([]);
   const [error, setError] = useState('');
   const [coinRain, setCoinRain] = useState({ visible: false, amount: 0 });
-  const [rouletteChances, setRouletteChances] = useState(2);
-  const [isRouletteAdLoading, setIsRouletteAdLoading] = useState(false);
-  const [autoSpinPending, setAutoSpinPending] = useState(false);
-  const [rouletteConfig, setRouletteConfig] = useState<RouletteSlice[]>([]);
-  const [showRedemptionSuccess, setShowRedemptionSuccess] = useState(false);
-  const [wonXpAmount, setWonXpAmount] = useState(0);
-  const [showRouletteModal, setShowRouletteModal] = useState(false);
   const [isSponsoredCardShattered, setIsSponsoredCardShattered] = useState(false);
-  const [rouletteConfigLoading, setRouletteConfigLoading] = useState(false);
   const [deviceId, setDeviceId] = useState<string | null>(null);
 
   // Sponsored card is claimed today if date matches
@@ -281,109 +297,6 @@ export const HomeScreen = React.memo(React.forwardRef<HomeScreenHandle, HomeScre
     if (wasPreloaded) { showAd(); } else { ad.load(); }
   };
 
-  const triggerRouletteAd = () => {
-    if (isAdPenalized()) {
-      Alert.alert('Slow down a bit', formatAdPenaltyMessage(getAdPenaltyRemainingSeconds()));
-      return;
-    }
-    if (!homeRewardAdUnitId) {
-      showToast('Ad not available, try again later.', 'info');
-      return;
-    }
-    if (!canWatchAd()) {
-      Alert.alert('Daily limit reached', "You've reached your daily ad limit. Come back tomorrow!");
-      return;
-    }
-    if (isAdPlaying || isRouletteAdLoading) return;
-
-    setIsRouletteAdLoading(true);
-    setAdPlaying(true);
-    const sessionId = `roulette-ad-${Date.now()}`;
-    reportAdEvent({
-      placementKey: 'roulette_ad',
-      adType: 'REWARDED',
-      eventType: 'REQUESTED',
-      screen: 'HOME',
-      sessionId,
-    });
-
-    const ad = RewardedAd.createForAdRequest(homeRewardAdUnitId, {
-      requestNonPersonalizedAdsOnly: true,
-      serverSideVerificationOptions: {
-        customData: `${useAppStore.getState().user?.id || 0}:${deviceId || 'null'}:ROULETTE_AD`
-      }
-    });
-    const wasPreloaded = false;
-    preloadedHomeAdReadyRef.current = false; // Intentionally invalidating since we want a fresh one
-    preloadedHomeAdRef.current = null;
-
-    const showAd = () => {
-      setIsRouletteAdLoading(false);
-      reportAdEvent({
-        placementKey: 'roulette_ad',
-        adType: 'REWARDED',
-        eventType: 'LOADED',
-        screen: 'HOME',
-        sessionId,
-      });
-      ad.show();
-    };
-
-    const u1 = ad.addAdEventListener(RewardedAdEventType.LOADED, showAd);
-    let rewardEarnedThisSession = false;
-
-    const u2 = ad.addAdEventListener(RewardedAdEventType.EARNED_REWARD, async () => {
-      try {
-        // SSV handles the DB. Optimistic UI update.
-        incrementAdCount();
-        trackEvent('AD_WATCHED', 1);
-        showToast('You earned 1 extra spin!', 'success');
-        rewardEarnedThisSession = true;
-        loadData();
-        reportAdEvent({
-          placementKey: 'roulette_ad',
-          adType: 'REWARDED',
-          eventType: 'EARNED_REWARD',
-          screen: 'HOME',
-          sessionId,
-        });
-      } catch {
-        showToast('Network issue. Please try again later.', 'info');
-      }
-    });
-    const u3 = ad.addAdEventListener(AdEventType.CLOSED, () => {
-      reportAdEventWithPenaltyCheck({
-        placementKey: 'roulette_ad',
-        adType: 'REWARDED',
-        eventType: 'DISMISSED',
-        screen: 'HOME',
-        sessionId,
-      });
-      setAdPlaying(false);
-      setIsRouletteAdLoading(false);
-      if (rewardEarnedThisSession) { setAutoSpinPending(true); }
-      u1(); u2(); u3();
-      preloadHomeRewardedAd();
-    });
-    const u4 = ad.addAdEventListener(AdEventType.ERROR, (error: any) => {
-      reportAdEvent({
-        placementKey: 'roulette_ad',
-        adType: 'REWARDED',
-        eventType: 'FAILED_TO_LOAD',
-        screen: 'HOME',
-        sessionId,
-        errorCode: error?.message,
-      });
-      setAdPlaying(false);
-      setIsRouletteAdLoading(false);
-      showToast('Ad not available right now. Try again later.', 'info');
-      u1(); u2(); u3(); u4();
-      preloadHomeRewardedAd();
-    });
-
-    if (wasPreloaded) { showAd(); } else { ad.load(); }
-  };
-
   const walletBalanceLabel = useContent('wallet.balance_label', 'Current Balance');
   const emptyMissionsText = useContent('home.missions.empty', 'New missions arrive at midnight.');
   const gamesTitle = useContent('home.games.title', 'Play Games');
@@ -396,7 +309,6 @@ export const HomeScreen = React.memo(React.forwardRef<HomeScreenHandle, HomeScre
     profile: any,
     dailyMissions: any,
     fetchedGames: any,
-    rConf: any,
   ) => {
     setBalance(profile?.coins ?? 0);
     setXp(profile?.xp ?? 0);
@@ -418,10 +330,6 @@ export const HomeScreen = React.memo(React.forwardRef<HomeScreenHandle, HomeScre
     });
     setMissions(dailyMissions);
     setGames(fetchedGames);
-    setRouletteChances(profile?.rouletteChancesRemaining ?? 2);
-    if (rConf?.success && Array.isArray(rConf.data) && rConf.data.length > 0) {
-      setRouletteConfig(rConf.data);
-    }
   };
 
   const loadData = async (mounted = true) => {
@@ -431,24 +339,23 @@ export const HomeScreen = React.memo(React.forwardRef<HomeScreenHandle, HomeScre
       // Stale-while-revalidate: an instant re-visit to Home (e.g. tab switch)
       // paints last known state immediately instead of a blank shimmer, then
       // silently refreshes in the background.
-      const [profile, dailyMissions, fetchedGames, rConf] = await fetchCached(
+      const [profile, dailyMissions, fetchedGames] = await fetchCached(
         'home:dashboard',
         () => Promise.all([
           getProfile(),
           getDailyMissions(),
           fetchGamesFromOrigin(),
-          getRouletteConfig(),
         ]),
         {
           ttlMs: 8_000,
           staleMs: 2 * 60_000,
-          onStaleData: ([p, dm, fg, rc]) => {
-            if (mounted) applyLoadedData(p, dm, fg, rc);
+          onStaleData: ([p, dm, fg]) => {
+            if (mounted) applyLoadedData(p, dm, fg);
           },
         },
       );
       if (!mounted) return;
-      applyLoadedData(profile, dailyMissions, fetchedGames, rConf);
+      applyLoadedData(profile, dailyMissions, fetchedGames);
     } catch {
       if (mounted) setError('Network issue. Please try again later.');
     } finally {
@@ -479,20 +386,6 @@ export const HomeScreen = React.memo(React.forwardRef<HomeScreenHandle, HomeScre
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [deviceId, homeRewardAdUnitId]);
-
-  const loadRouletteConfig = async () => {
-    try {
-      setRouletteConfigLoading(true);
-      const rConf = await getRouletteConfig();
-      if (rConf?.success && Array.isArray(rConf.data) && rConf.data.length > 0) {
-        setRouletteConfig(rConf.data);
-      }
-    } catch {
-      // Silently fail
-    } finally {
-      setRouletteConfigLoading(false);
-    }
-  };
 
   const onRefresh = () => {
     setRefreshing(true);
@@ -578,12 +471,19 @@ export const HomeScreen = React.memo(React.forwardRef<HomeScreenHandle, HomeScre
         locations={[0, 0.4, 0.65, 1]}
         style={StyleSheet.absoluteFill} 
       />
-      <FallingEmbers />
+      {!reducedMotion && <FallingEmbers />}
+
+      {/* Atmosphere behind the header — breathing glow, faked with
+          concentric falloff rings (no native blur available in RN) */}
+      <Animated.View pointerEvents="none" style={[styles.headerGlowWrap, { opacity: headerGlowOpacity, transform: [{ scale: headerGlowScale }] }]}>
+        <View style={[styles.headerGlowRing, { width: 340, height: 340, borderRadius: 170, opacity: 0.12 }]} />
+        <View style={[styles.headerGlowRing, { width: 200, height: 200, borderRadius: 100, opacity: 0.18 }]} />
+      </Animated.View>
 
       <GamePlayerOverlay ref={gamePlayerRef} selectedGame={selectedGame} onExit={() => setSelectedGame(null)} />
 
-      {/* Header */}
-      <View style={styles.header}>
+      {/* Header — one-shot entrance, the screen's single "hero" moment */}
+      <Animated.View style={[styles.header, { opacity: headerOpacity, transform: [{ translateY: headerTranslateY }] }]}>
         <View style={styles.userInfo}>
           <TouchableOpacity
             style={styles.avatarPlaceholder}
@@ -621,7 +521,7 @@ export const HomeScreen = React.memo(React.forwardRef<HomeScreenHandle, HomeScre
             <View style={[styles.xpBarFill, { width: `${xp % 100}%` }]} />
           </View>
         </View>
-      </View>
+      </Animated.View>
 
       <ScrollView
         style={styles.content}
@@ -714,13 +614,6 @@ export const HomeScreen = React.memo(React.forwardRef<HomeScreenHandle, HomeScre
             </View>
             <Text style={styles.quickActionTitle} numberOfLines={1}>Tasks</Text>
           </TouchableOpacity>
-
-          <View style={styles.quickActionDivider} />
-
-          <TouchableOpacity style={styles.quickActionCard} onPress={() => setShowRouletteModal(true)}>
-            <Image source={require('../../assets/wheel.png')} style={styles.quickActionImg} resizeMode="contain" />
-            <Text style={styles.quickActionTitle} numberOfLines={1}>Wheel</Text>
-          </TouchableOpacity>
         </View>
 
         {/* Trending Shorts Catalog */}
@@ -747,8 +640,6 @@ export const HomeScreen = React.memo(React.forwardRef<HomeScreenHandle, HomeScre
           </View>
         )}
 
-        {/* Roulette Wheel Modal removed from scroll view flow */}
-
         {/* Sponsored Reward Card — shown once per day */}
         {!sponsoredCardClaimed && !isSponsoredCardShattered ? (
           <View style={{ marginBottom: 16 }}>
@@ -758,7 +649,7 @@ export const HomeScreen = React.memo(React.forwardRef<HomeScreenHandle, HomeScre
                 setSponsoredCardClaimedDate(new Date().toISOString().split('T')[0]);
               }}
               width={Dimensions.get('window').width - 32}
-              height={90}
+              height={104}
               glassColor="rgba(255, 77, 26, 0.8)"
             >
               <RewardCard coins={rewardedCoinAmount} onWatch={triggerHomeRewardedAd} />
@@ -815,81 +706,6 @@ export const HomeScreen = React.memo(React.forwardRef<HomeScreenHandle, HomeScre
 
         <View style={{ height: 120 }} />
       </ScrollView>
-
-      {/* Lucky Wheel Modal */}
-      {showRouletteModal && (
-        <View style={styles.modalOverlay}>
-          <LinearGradient 
-            colors={['rgba(231,93,11,0.95)', 'rgba(13,0,2,0.98)']} 
-            style={StyleSheet.absoluteFill} 
-          />
-          <TouchableOpacity 
-            style={styles.modalCloseBtn}
-            onPress={() => setShowRouletteModal(false)}
-          >
-            <X color="#FFF" size={24} />
-          </TouchableOpacity>
-          <View style={styles.modalContent}>
-            {rouletteConfig.length > 0 && (rouletteChances > 0 || canWatchAd()) ? (
-              <RouletteWheel
-                chances={rouletteChances}
-                config={rouletteConfig}
-                isAdPlaying={isAdPlaying}
-                isAdPenalized={isAdPenalized()}
-                adPenaltyMessage={formatAdPenaltyMessage(getAdPenaltyRemainingSeconds())}
-                isAdLoading={isRouletteAdLoading}
-                onWatchAd={triggerRouletteAd}
-                autoSpinPending={autoSpinPending}
-                onAutoSpinConsumed={() => setAutoSpinPending(false)}
-                onSpinSuccess={async (xpEarned, slice) => {
-                  // Roulette is a chance-based mechanic — its reward is XP only,
-                  // never real/withdrawable VIB, so this must never touch
-                  // coinBalance or show coin iconography (CoinRain is VIB-branded).
-                  // See claimRouletteSpin on the backend for the compliance note.
-                  if (xpEarned > 0) {
-                    setXp(useAppStore.getState().xp + xpEarned);
-                  }
-                  if (slice.popupType === 'CONGRATULATION' || slice.popupType === 'WINNING') {
-                    setWonXpAmount(xpEarned);
-                    setShowRedemptionSuccess(true);
-                    setShowRouletteModal(false);
-                    } else {
-                    showToast(
-                      xpEarned > 0 ? `You won ${xpEarned} XP!` : 'Better luck next time!',
-                      xpEarned > 0 ? 'success' : 'info'
-                    );
-                  }
-                  loadData();
-                }}
-              />
-            ) : (
-              <View style={{ alignItems: 'center', paddingVertical: 40 }}>
-                <Text style={{ color: '#fff', marginBottom: 16, fontSize: 15, textAlign: 'center' }}>
-                  {rouletteConfigLoading ? 'Loading wheel...' : 'Wheel not available right now.'}
-                </Text>
-                {!rouletteConfigLoading && (
-                  <TouchableOpacity
-                    style={{ backgroundColor: '#FFD700', paddingHorizontal: 24, paddingVertical: 10, borderRadius: 12 }}
-                    onPress={loadRouletteConfig}
-                  >
-                    <Text style={{ color: '#000', fontWeight: '800' }}>Retry</Text>
-                  </TouchableOpacity>
-                )}
-              </View>
-            )}
-          </View>
-        </View>
-      )}
-
-      {showRedemptionSuccess && (
-        <RedemptionSuccessScreen
-          itemName="Roulette Prize"
-          coinsSpent={0}
-          title={wonXpAmount > 0 ? "Congratulations!" : "Better luck next time!"}
-          detail={wonXpAmount > 0 ? <Text style={{ color: 'rgba(255,255,255,0.55)', fontSize: 13 }}>You won {wonXpAmount} XP</Text> : undefined}
-          onDone={() => setShowRedemptionSuccess(false)}
-        />
-      )}
     </View>
   );
 }));
@@ -911,6 +727,21 @@ const styles = StyleSheet.create({
   },
   errorText: { color: '#FFF', fontSize: 13 },
   retryText: { color: '#FFD700', fontWeight: '700', marginTop: 6, fontSize: 12 },
+  headerGlowWrap: {
+    position: 'absolute',
+    top: -60,
+    left: '50%',
+    marginLeft: -170,
+    width: 340,
+    height: 340,
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 1,
+  },
+  headerGlowRing: {
+    position: 'absolute',
+    backgroundColor: '#FFD700',
+  },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -1074,11 +905,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  quickActionImg: {
-    width: 24,
-    height: 24,
-    marginRight: 6,
-  },
   iconGlowBoxSmall: {
     width: 24,
     height: 24,
@@ -1107,28 +933,6 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.1)',
     marginHorizontal: 16,
     marginVertical: 8,
-  },
-  modalOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    zIndex: 999,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  modalContent: {
-    width: '100%',
-    alignItems: 'center',
-  },
-  modalCloseBtn: {
-    position: 'absolute',
-    top: 50,
-    right: 20,
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: 'rgba(255,255,255,0.1)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    zIndex: 1000,
   },
   // Games
   gamesSection: {

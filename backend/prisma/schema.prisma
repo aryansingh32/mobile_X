@@ -52,7 +52,6 @@ model User {
   streakFreezes     Int       @default(0)
   totalCoinsEarned  Int       @default(0)
   activityEvents    UserActivityEvent[]
-  rouletteSpinHistory RouletteSpinHistory[]
 
   // Lifetime Telemetry Metrics
   lifetimeScreentimeMin   Int @default(0)
@@ -707,37 +706,3 @@ model AdEvent {
   @@index([adType, eventType])
 }
 
-// ─────────────────────────────────────────────────────────
-// ROULETTE WHEEL
-// ─────────────────────────────────────────────────────────
-
-model RouletteItem {
-  id          Int      @id @default(autoincrement())
-  label       String
-  color       String
-  rewardCoins Int      @default(0) // 0 means no reward
-  probability Float    @default(0) // 0 to 100
-  sizePortion Float    @default(1) // visual size relative to others
-  popupType   String   @default("WINNING") // WINNING, CONGRATULATION, BETTER_LUCK
-  imageUrl    String?
-  isActive    Boolean  @default(true)
-  sortOrder   Int      @default(0)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-
-  historyLogs RouletteSpinHistory[]
-}
-
-model RouletteSpinHistory {
-  id             Int      @id @default(autoincrement())
-  userId         Int
-  user           User     @relation(fields: [userId], references: [id])
-  rouletteItemId Int
-  rouletteItem   RouletteItem @relation(fields: [rouletteItemId], references: [id])
-  coinsAwarded   Int
-  spinType       String   @default("FREE") // FREE, AD_REWARD
-  timestamp      DateTime @default(now())
-  
-  @@index([userId, timestamp])
-  @@index([rouletteItemId, timestamp])
-}

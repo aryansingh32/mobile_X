@@ -17,8 +17,9 @@ import { FallingEmbers } from '../components/ui/FallingEmbers';
 import { Shimmer } from '../components/ui/Shimmer';
 import AutoMarquee from '../components/ui/AutoMarquee';
 import { useContent } from '../hooks/useContent';
+import { useReducedMotion } from '../hooks/useReducedMotion';
 
-const FloatingChip = ({ text, delay = 0, style }: { text: React.ReactNode, delay?: number, style?: any }) => {
+const FloatingChip = ({ text, delay = 0, style, reducedMotion }: { text: React.ReactNode, delay?: number, style?: any, reducedMotion: boolean }) => {
   const floatAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
@@ -26,6 +27,9 @@ const FloatingChip = ({ text, delay = 0, style }: { text: React.ReactNode, delay
     // these chips are mounted at once on AuthScreen, none of it was ever
     // stopped on unmount, so navigating away (e.g. after a successful
     // login) left every chip's animation still ticking in the background.
+    // Also skipped entirely under Reduce Motion — these are purely
+    // decorative, endless loops, exactly what that setting asks to avoid.
+    if (reducedMotion) return;
     let stopped = false;
     let current: Animated.CompositeAnimation | null = null;
 
@@ -56,7 +60,7 @@ const FloatingChip = ({ text, delay = 0, style }: { text: React.ReactNode, delay
       clearTimeout(timer);
       current?.stop();
     };
-  }, [floatAnim, delay]);
+  }, [floatAnim, delay, reducedMotion]);
 
   const translateY = floatAnim.interpolate({
     inputRange: [0, 1],
@@ -106,6 +110,7 @@ const GoogleSignInButton = ({ onPress, loading }: { onPress: () => void; loading
 
 export const AuthScreen = () => {
   const insets = useSafeAreaInsets();
+  const reducedMotion = useReducedMotion();
 
   // Admin-set via Content Strings (key: auth.social_proof, screen: AUTH) —
   // e.g. "Join 200,000+ earners" or "4.6★ on Play Store". Empty by default
@@ -115,11 +120,15 @@ export const AuthScreen = () => {
 
   const { setUser } = useAppStore(useShallow(s => ({ setUser: s.setUser })));
   const [loading, setLoading] = useState(false);
-  
+
   // Animation Values
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(30)).current;
   const imageScale = useRef(new Animated.Value(0.8)).current;
+  const glowAnim = useRef(new Animated.Value(0)).current;
+  // Trust badges + social proof land on their own beat, after the brand
+  // image/title have already settled — not just one big block fading in.
+  const badgesAnim = useRef(new Animated.Value(0)).current;
 
   const [isImageLoaded, setIsImageLoaded] = useState(false);
 
@@ -131,13 +140,33 @@ export const AuthScreen = () => {
 
   useEffect(() => {
     if (isImageLoaded) {
-      Animated.parallel([
-        Animated.timing(fadeAnim, { toValue: 1, duration: 800, useNativeDriver: true }),
-        Animated.spring(slideAnim, { toValue: 0, friction: 8, tension: 40, useNativeDriver: true }),
-        Animated.spring(imageScale, { toValue: 1, friction: 6, tension: 50, useNativeDriver: true }),
+      Animated.sequence([
+        Animated.parallel([
+          Animated.timing(fadeAnim, { toValue: 1, duration: 800, useNativeDriver: true }),
+          Animated.spring(slideAnim, { toValue: 0, friction: 8, tension: 40, useNativeDriver: true }),
+          Animated.spring(imageScale, { toValue: 1, friction: 6, tension: 50, useNativeDriver: true }),
+        ]),
+        Animated.timing(badgesAnim, { toValue: 1, duration: 420, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
       ]).start();
     }
-  }, [fadeAnim, slideAnim, imageScale, isImageLoaded]);
+  }, [fadeAnim, slideAnim, imageScale, badgesAnim, isImageLoaded]);
+
+  useEffect(() => {
+    if (reducedMotion) return;
+    const glowLoop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(glowAnim, { toValue: 1, duration: 3000, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+        Animated.timing(glowAnim, { toValue: 0, duration: 3000, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+      ]),
+    );
+    glowLoop.start();
+    return () => glowLoop.stop();
+  }, [glowAnim, reducedMotion]);
+
+  const glowOpacity = glowAnim.interpolate({ inputRange: [0, 1], outputRange: [0.14, 0.26] });
+  const glowScale = glowAnim.interpolate({ inputRange: [0, 1], outputRange: [1, 1.1] });
+  const badgesOpacity = badgesAnim;
+  const badgesTranslateY = badgesAnim.interpolate({ inputRange: [0, 1], outputRange: [16, 0] });
 
   const handleGoogleLogin = async () => {
     if (loading) return;
@@ -191,26 +220,32 @@ export const AuthScreen = () => {
       />
       
       {/* Falling Sparks/Embers Effect - Deferred to prevent JS thread blocking on mount */}
-      {isImageLoaded && <FallingEmbers />}
-      
+      {isImageLoaded && !reducedMotion && <FallingEmbers />}
+
       <Animated.View style={[styles.container, { paddingTop: Math.max(insets.top, 60), opacity: fadeAnim, transform: [{ translateY: slideAnim }], zIndex: 2 }]}>
-        
+
         {/* Animated Brand Image Area */}
         <View style={styles.brandArea}>
           <Animated.View style={[styles.imageGlowContainer, { transform: [{ scale: imageScale }] }]}>
-            
+            {/* Atmosphere — breathing glow behind the chest, faked with
+                concentric falloff rings (no native blur available) */}
+            <Animated.View pointerEvents="none" style={[styles.chestGlowWrap, { opacity: glowOpacity, transform: [{ scale: glowScale }] }]}>
+              <View style={[styles.chestGlowRing, { width: 260, height: 260, borderRadius: 130, opacity: 0.14 }]} />
+              <View style={[styles.chestGlowRing, { width: 180, height: 180, borderRadius: 90, opacity: 0.2 }]} />
+            </Animated.View>
+
             {/* Scattered Organic Chips Layer - Deferred */}
             {isImageLoaded && (
               <>
-                <FloatingChip text={<View style={{flexDirection: 'row', alignItems: 'center'}}><Text style={{color: '#FFD700', fontWeight: 'bold'}}>+500 </Text><VIBIcon size={14} /></View>} delay={0} style={{ top: 15, left: -10, transform: [{ rotate: '-5deg' }, { scale: 1.05 }] }} />
-                <FloatingChip text="Daily Quests" delay={600} style={{ bottom: 40, left: -25, transform: [{ rotate: '8deg' }, { scale: 0.95 }] }} />
-                <FloatingChip text="Rewards" delay={1200} style={{ top: 60, right: -15, transform: [{ rotate: '12deg' }, { scale: 1.1 }] }} />
-                
-                <FloatingChip text="🔥 Hot" delay={300} style={{ top: -45, left: 30, transform: [{ rotate: '-18deg' }, { scale: 0.85 }] }} />
-                <FloatingChip text="🎬 Shorts" delay={1500} style={{ top: 90, left: -85, transform: [{ rotate: '5deg' }, { scale: 0.9 }] }} />
-                
-                <FloatingChip text="📰 News" delay={900} style={{ top: -10, right: -85, transform: [{ rotate: '-8deg' }, { scale: 1.05 }] }} />
-                <FloatingChip text="🎭 Entertainment" delay={2000} style={{ bottom: 10, right: -70, transform: [{ rotate: '14deg' }, { scale: 0.85 }] }} />
+                <FloatingChip reducedMotion={reducedMotion} text={<View style={{flexDirection: 'row', alignItems: 'center'}}><Text style={{color: '#FFD700', fontWeight: 'bold'}}>+500 </Text><VIBIcon size={14} /></View>} delay={0} style={{ top: 15, left: -10, transform: [{ rotate: '-5deg' }, { scale: 1.05 }] }} />
+                <FloatingChip reducedMotion={reducedMotion} text="Daily Quests" delay={600} style={{ bottom: 40, left: -25, transform: [{ rotate: '8deg' }, { scale: 0.95 }] }} />
+                <FloatingChip reducedMotion={reducedMotion} text="Rewards" delay={1200} style={{ top: 60, right: -15, transform: [{ rotate: '12deg' }, { scale: 1.1 }] }} />
+
+                <FloatingChip reducedMotion={reducedMotion} text="🔥 Hot" delay={300} style={{ top: -45, left: 30, transform: [{ rotate: '-18deg' }, { scale: 0.85 }] }} />
+                <FloatingChip reducedMotion={reducedMotion} text="🎬 Shorts" delay={1500} style={{ top: 90, left: -85, transform: [{ rotate: '5deg' }, { scale: 0.9 }] }} />
+
+                <FloatingChip reducedMotion={reducedMotion} text="📰 News" delay={900} style={{ top: -10, right: -85, transform: [{ rotate: '-8deg' }, { scale: 1.05 }] }} />
+                <FloatingChip reducedMotion={reducedMotion} text="🎭 Entertainment" delay={2000} style={{ bottom: 10, right: -70, transform: [{ rotate: '14deg' }, { scale: 0.85 }] }} />
               </>
             )}
 
@@ -227,26 +262,28 @@ export const AuthScreen = () => {
           <Text style={styles.subtitle}>Unlock daily rewards and exclusive tasks.</Text>
         </View>
 
-        {/* Trust Badges */}
-        <View style={styles.badgesContainer}>
-          <View style={styles.trustBadge}>
-            <PlayCircle size={18} color="#FFD700" />
-            <View>
-              <Text style={styles.trustBadgeTitle}>Watch & Earn</Text>
-              <Text style={styles.trustBadgeSub}>Turn screen time into rewards</Text>
+        {/* Trust Badges — arrive on their own beat, after the brand image settles */}
+        <Animated.View style={{ opacity: badgesOpacity, transform: [{ translateY: badgesTranslateY }] }}>
+          <View style={styles.badgesContainer}>
+            <View style={styles.trustBadge}>
+              <PlayCircle size={18} color="#FFD700" />
+              <View>
+                <Text style={styles.trustBadgeTitle}>Watch & Earn</Text>
+                <Text style={styles.trustBadgeSub}>Turn screen time into rewards</Text>
+              </View>
             </View>
-          </View>
-          
-          <View style={styles.trustBadge}>
-            <ShieldCheck size={18} color="#FFD700" />
-            <View>
-              <Text style={styles.trustBadgeTitle}>100% Safe</Text>
-              <Text style={styles.trustBadgeSub}>Trusted Platform</Text>
-            </View>
-          </View>
-        </View>
 
-        {!!socialProof && <Text style={styles.socialProofText}>{socialProof}</Text>}
+            <View style={styles.trustBadge}>
+              <ShieldCheck size={18} color="#FFD700" />
+              <View>
+                <Text style={styles.trustBadgeTitle}>100% Safe</Text>
+                <Text style={styles.trustBadgeSub}>Trusted Platform</Text>
+              </View>
+            </View>
+          </View>
+
+          {!!socialProof && <Text style={styles.socialProofText}>{socialProof}</Text>}
+        </Animated.View>
 
         {/* Running Marquee Text below Badges - Deferred */}
         {isImageLoaded && <AutoMarquee />}
@@ -318,6 +355,18 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 8,
+  },
+  chestGlowWrap: {
+    position: 'absolute',
+    width: 260,
+    height: 260,
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 0,
+  },
+  chestGlowRing: {
+    position: 'absolute',
+    backgroundColor: '#FFD700',
   },
   heroImage: {
     width: '100%',

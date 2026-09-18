@@ -150,13 +150,6 @@ export const getFillRateAnalytics = (days?: number) =>
 export const getRevenueEstimate = (days?: number) =>
   api.get('/admin/ad-analytics/revenue-estimate', { params: { days } });
 
-// Roulette
-export const getRouletteItems = () => api.get('/admin/roulette');
-export const createRouletteItem = (data: any) => api.post('/admin/roulette', data);
-export const updateRouletteItem = (id: number, data: any) => api.put(`/admin/roulette/${id}`, data);
-export const deleteRouletteItem = (id: number) => api.delete(`/admin/roulette/${id}`);
-export const getRouletteAnalytics = () => api.get('/admin/roulette/analytics');
-
 // Affiliate marketplace
 export const getAffiliateProducts = () => api.get('/admin/affiliate/products');
 export const createAffiliateProduct = (data: any) => api.post('/admin/affiliate/products', data);

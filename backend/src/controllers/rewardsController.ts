@@ -14,12 +14,6 @@ const getConfigInt = async (key: string, fallback: number): Promise<number> => {
   return Number.isFinite(parsed) ? parsed : fallback;
 };
 
-const getConfigBoolean = async (key: string, fallback: boolean): Promise<boolean> => {
-  const config = await prisma.appConfig.findUnique({ where: { key } });
-  if (!config) return fallback;
-  return config.value === 'true' || config.value === '1';
-};
-
 const fetchGoogleKeys = (): Promise<any> => {
   return new Promise((resolve, reject) => {
     https.get('https://www.gstatic.com/admob/reward/verifier/keys.json', (res) => {
@@ -100,7 +94,7 @@ export const handleAdMobSSV = async (req: any, res: Response): Promise<void> => 
       prisma.coinLedger.count({
         where: {
           userId: uid,
-          source: { in: ['REWARDED', 'REWARDED_INTERSTITIAL', 'REWARDED_DISCOVER', 'ROULETTE_AD'] },
+          source: { in: ['REWARDED', 'REWARDED_INTERSTITIAL', 'REWARDED_DISCOVER'] },
           timestamp: { gte: new Date(new Date().setHours(0,0,0,0)) },
         },
       }),
@@ -232,7 +226,7 @@ export const claimAdReward = async (req: AuthRequest, res: Response): Promise<vo
     }
 
     // Block client claims for SSV-enabled ad types
-    if (['REWARDED', 'REWARDED_INTERSTITIAL', 'REWARDED_DISCOVER', 'ROULETTE_AD'].includes(adType)) {
+    if (['REWARDED', 'REWARDED_INTERSTITIAL', 'REWARDED_DISCOVER'].includes(adType)) {
        res.status(403).json({ error: 'This ad type uses Server-Side Verification. Client claims are disabled.' });
        return;
     }
@@ -245,7 +239,7 @@ export const claimAdReward = async (req: AuthRequest, res: Response): Promise<vo
       prisma.coinLedger.count({
         where: {
           userId,
-          source: { in: ['REWARDED', 'REWARDED_INTERSTITIAL', 'REWARDED_DISCOVER', 'ROULETTE_AD'] },
+          source: { in: ['REWARDED', 'REWARDED_INTERSTITIAL', 'REWARDED_DISCOVER'] },
           timestamp: { gte: todayStart },
         },
       }),
@@ -274,7 +268,7 @@ export const claimAdReward = async (req: AuthRequest, res: Response): Promise<vo
 
     // 3. Enforce Cooldowns (Global and Per-Type)
     const lastAdAny = await prisma.coinLedger.findFirst({
-      where: { userId, source: { in: ['REWARDED', 'REWARDED_INTERSTITIAL', 'REWARDED_DISCOVER', 'ROULETTE_AD'] } },
+      where: { userId, source: { in: ['REWARDED', 'REWARDED_INTERSTITIAL', 'REWARDED_DISCOVER'] } },
       orderBy: { timestamp: 'desc' },
       select: { timestamp: true, source: true },
     });
@@ -362,138 +356,6 @@ export const claimAdReward = async (req: AuthRequest, res: Response): Promise<vo
     }).catch(() => undefined);
 
     res.json({ message: 'Ad reward claimed', coinsEarned, xpGained });
-  } catch (error: any) {
-    sendServerError(res, error);
-  }
-};
-
-export const getRouletteConfig = async (req: AuthRequest, res: Response): Promise<void> => {
-  try {
-    const isEnabled = await getConfigBoolean('roulette_enabled', true);
-    if (!isEnabled) {
-      res.json({ success: true, data: [] });
-      return;
-    }
-
-    const items = await prisma.rouletteItem.findMany({
-      where: { isActive: true },
-      orderBy: { sortOrder: 'asc' }
-    });
-    res.json({ success: true, data: items });
-  } catch (error: any) {
-    sendServerError(res, error);
-  }
-};
-
-export const claimRouletteSpin = async (req: AuthRequest, res: Response): Promise<void> => {
-  try {
-    const isEnabled = await getConfigBoolean('roulette_enabled', true);
-    if (!isEnabled) {
-      res.status(403).json({ error: 'Roulette is currently disabled' });
-      return;
-    }
-
-    const userId = req.user.id;
-
-    const todayStart = new Date();
-    todayStart.setHours(0, 0, 0, 0);
-
-    // Get limits and chances
-    const [rouletteDailyChances, rouletteAdsWatchedToday, rouletteSpinsToday, activeSlices] = await Promise.all([
-      getConfigInt('roulette_daily_chances', 2),
-      prisma.coinLedger.count({
-        where: {
-          userId,
-          source: 'ROULETTE_AD',
-          timestamp: { gte: todayStart },
-        },
-      }),
-      // Spins are no longer coin-ledger entries (see below) — count from the
-      // spin history table itself instead.
-      prisma.rouletteSpinHistory.count({
-        where: {
-          userId,
-          timestamp: { gte: todayStart },
-        },
-      }),
-      prisma.rouletteItem.findMany({
-        where: { isActive: true },
-        orderBy: { sortOrder: 'asc' }
-      })
-    ]);
-
-    const chancesRemaining = rouletteDailyChances + rouletteAdsWatchedToday - rouletteSpinsToday;
-    if (chancesRemaining <= 0) {
-      res.status(429).json({ error: 'No spin chances remaining today' });
-      return;
-    }
-
-    if (activeSlices.length === 0) {
-      res.status(400).json({ error: 'Roulette is currently not configured' });
-      return;
-    }
-
-    // Select randomly based on probability weight
-    const totalWeight = activeSlices.reduce((sum, s) => sum + s.probability, 0);
-    const randomVal = crypto.randomBytes(4).readUInt32LE(0) / 0xffffffff;
-    let randomNum = randomVal * totalWeight;
-    
-    let sliceIndex = 0;
-    for (let i = 0; i < activeSlices.length; i++) {
-      const slice = activeSlices[i];
-      if (!slice) continue;
-      randomNum -= slice.probability;
-      if (randomNum < 0) {
-        sliceIndex = i;
-        break;
-      }
-    }
-
-    const selectedSlice = activeSlices[sliceIndex];
-    if (!selectedSlice) {
-      res.status(500).json({ error: 'Failed to determine roulette outcome' });
-      return;
-    }
-
-    // NOTE: The roulette wheel is a chance-based mechanic (weighted random slice
-    // selection). Crediting real, withdrawable coins for a chance outcome is what
-    // Google Play's Real-Money Gambling policy targets, regardless of licensing —
-    // so this reward is deliberately NOT added to the coin ledger (which backs the
-    // cash-withdrawable balance via getBalance()/CoinLedger). It converts entirely
-    // to XP instead: still a meaningful, exciting reward (contributes to level,
-    // streak flavor, leaderboard rank) but never becomes real money. Do not
-    // reintroduce an addLedgerEntry(..., 'ROULETTE_SPIN', ...) call here without a
-    // legal review — see tos_compliance_audit.md / playstore_tos_audit_report.md.
-    const prizeValue = selectedSlice.rewardCoins;
-
-    // Log the spin. This no longer needs strict cross-request idempotency —
-    // since a spin can't mint cash anymore, the worst case of a duplicate
-    // request is a small extra XP grant (further bounded by chancesRemaining
-    // being recomputed from a fresh count on every call), not a financial
-    // double-spend, so a plain insert is sufficient.
-    await prisma.rouletteSpinHistory.create({
-      data: {
-        userId,
-        rouletteItemId: selectedSlice.id,
-        coinsAwarded: 0,
-        spinType: rouletteSpinsToday >= rouletteDailyChances ? 'AD_REWARD' : 'FREE',
-      },
-    });
-
-    // The slice's configured "prize value" becomes XP 1:1 — no coin/cash path.
-    const xpGained = Math.max(0, Math.floor(prizeValue));
-    if (xpGained > 0) {
-      await addExp(userId, xpGained);
-    }
-
-    res.json({
-      success: true,
-      coinsEarned: 0,
-      xpGained,
-      sliceIndex,
-      sliceName: selectedSlice.label,
-      chancesRemaining: chancesRemaining - 1,
-    });
   } catch (error: any) {
     sendServerError(res, error);
   }

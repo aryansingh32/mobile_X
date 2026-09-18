@@ -55,9 +55,6 @@ export const getProfile = async (req: any, res: Response) => {
       adRewardedInterstitialCoins,
       adRewardedDiscoverCoins,
       dailyBonusCoins,
-      rouletteDailyChances,
-      rouletteAdsWatchedToday,
-      rouletteSpinsToday,
     ] = await Promise.all([
       getBalance(user.id),
       prisma.coinLedger.count({
@@ -82,24 +79,7 @@ export const getProfile = async (req: any, res: Response) => {
       getConfigInt('ad_rewarded_interstitial_coins', 50),
       getConfigInt('ad_rewarded_discover_coins', 50),
       getConfigInt('daily_bonus_coins', 20),
-      getConfigInt('roulette_daily_chances', 2),
-      prisma.coinLedger.count({
-        where: {
-          userId: user.id,
-          source: 'ROULETTE_AD',
-          timestamp: { gte: todayStart },
-        },
-      }),
-      prisma.coinLedger.count({
-        where: {
-          userId: user.id,
-          source: 'ROULETTE_SPIN',
-          timestamp: { gte: todayStart },
-        },
-      }),
     ]);
-
-    const rouletteChancesRemaining = Math.max(0, rouletteDailyChances + rouletteAdsWatchedToday - rouletteSpinsToday);
 
     res.json({
       data: {
@@ -113,7 +93,6 @@ export const getProfile = async (req: any, res: Response) => {
         dailyBonusAvailable: !isSameDay(user.lastDailyBonus),
         coinToInrRate,
         minWithdrawalCoins,
-        rouletteChancesRemaining,
         config: {
           daily_ad_cap: dailyAdCap,
           coin_to_inr_rate: coinToInrRate,
@@ -122,7 +101,6 @@ export const getProfile = async (req: any, res: Response) => {
           ad_rewarded_interstitial_coins: adRewardedInterstitialCoins,
           ad_rewarded_discover_coins: adRewardedDiscoverCoins,
           daily_bonus_coins: dailyBonusCoins,
-          roulette_daily_chances: rouletteDailyChances,
         },
       },
     });

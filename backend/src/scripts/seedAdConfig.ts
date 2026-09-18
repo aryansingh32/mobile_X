@@ -56,22 +56,6 @@ const AD_REWARD_RULES = [
     enabled: true,
     requiresFullWatch: true,
   },
-  {
-    adType: 'ROULETTE_AD',
-    // Was 0 ("reward is extra roulette spin, not direct coins") — but
-    // addLedgerEntry() rejects zero-amount writes, so no CoinLedger row was
-    // ever created for this ad type, which meant the daily cap check and the
-    // "extra chances" count in claimRouletteSpin (both COUNT this source from
-    // CoinLedger) silently never worked. A small real coin reward is fully
-    // compliant (it's a deterministic reward for a completed ad, same as any
-    // other rewarded-ad type) and fixes the counting; the spin OUTCOME itself
-    // stays fully decoupled from coins — see claimRouletteSpin.
-    coinsAwarded: 5,
-    dailyCapForType: 5,
-    cooldownSeconds: 30,
-    enabled: true,
-    requiresFullWatch: true,
-  },
 ];
 
 const AD_PLACEMENTS = [

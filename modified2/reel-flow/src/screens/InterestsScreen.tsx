@@ -1,6 +1,6 @@
 import { useShallow } from 'zustand/react/shallow';
-import React, { useRef, useState } from 'react';
-import { Animated, Pressable, StyleSheet, Text, View } from 'react-native';
+import React, { useEffect, useRef, useState } from 'react';
+import { Animated, Easing, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Check, Gamepad2, Clapperboard, Cpu, Trophy, Laugh } from 'lucide-react-native';
 import { COLORS, MOTION, RADIUS, SPACING, TYPOGRAPHY } from '../constants/theme';
 import AppButton from '../components/ui/AppButton';
@@ -39,6 +39,13 @@ export const InterestsScreen = ({ onContinue }: { onContinue: () => void }) => {
   const { selectedInterests, setSelectedInterests } = useAppStore(useShallow(s => ({ selectedInterests: s.selectedInterests, setSelectedInterests: s.setSelectedInterests })));
   const [selected, setSelected] = useState<string[]>(selectedInterests?.length ? selectedInterests : ['gaming', 'sports']);
 
+  // Cascading card-stack entrance — each row lands a beat after the one
+  // above it, instead of the whole list appearing at once.
+  const rowAnims = useRef(OPTIONS.map(() => new Animated.Value(0))).current;
+  useEffect(() => {
+    Animated.stagger(70, rowAnims.map((a) => Animated.timing(a, { toValue: 1, duration: 380, easing: Easing.out(Easing.cubic), useNativeDriver: true }))).start();
+  }, [rowAnims]);
+
   const toggle = (key: string) => {
     setSelected((current) => (
       current.includes(key) ? current.filter((k) => k !== key) : [...current, key]
@@ -60,21 +67,30 @@ export const InterestsScreen = ({ onContinue }: { onContinue: () => void }) => {
         <Text style={styles.subtitle}>Select what you like to get a better experience</Text>
 
         <View style={styles.list}>
-          {OPTIONS.map((option) => {
+          {OPTIONS.map((option, index) => {
             const Icon = option.icon;
             const isActive = selected.includes(option.key);
+            const anim = rowAnims[index];
             return (
-              <InterestRow key={option.key} onPress={() => toggle(option.key)} accessibilityRole="checkbox" accessibilityState={{ checked: isActive }}>
-                <View style={styles.rowLeft}>
-                  <View style={styles.iconCircle}>
-                    <Icon size={18} color={COLORS.white_80} />
+              <Animated.View
+                key={option.key}
+                style={{
+                  opacity: anim,
+                  transform: [{ translateY: anim.interpolate({ inputRange: [0, 1], outputRange: [24, 0] }) }],
+                }}
+              >
+                <InterestRow onPress={() => toggle(option.key)} accessibilityRole="checkbox" accessibilityState={{ checked: isActive }}>
+                  <View style={styles.rowLeft}>
+                    <View style={styles.iconCircle}>
+                      <Icon size={18} color={COLORS.white_80} />
+                    </View>
+                    <Text style={styles.rowLabel}>{option.label}</Text>
                   </View>
-                  <Text style={styles.rowLabel}>{option.label}</Text>
-                </View>
-                <View style={[styles.checkbox, isActive && styles.checkboxActive]}>
-                  {isActive ? <Check size={14} color="#111111" /> : null}
-                </View>
-              </InterestRow>
+                  <View style={[styles.checkbox, isActive && styles.checkboxActive]}>
+                    {isActive ? <Check size={14} color="#111111" /> : null}
+                  </View>
+                </InterestRow>
+              </Animated.View>
             );
           })}
         </View>

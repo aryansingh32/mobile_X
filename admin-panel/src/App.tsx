@@ -44,7 +44,6 @@ import DailyCapPolicies from './pages/DailyCapPolicies';
 import FeatureFlags from './pages/FeatureFlags';
 import ScreenLayout from './pages/ScreenLayout';
 import AdAnalytics from './pages/AdAnalytics';
-import RouletteConfig from './pages/RouletteConfig';
 import TrendingShorts from './pages/TrendingShorts';
 import AffiliateProducts from './pages/AffiliateProducts';
 import AffiliateBanners from './pages/AffiliateBanners';
@@ -75,7 +74,6 @@ const Sidebar = ({ onLogout }: { onLogout: () => void }) => {
         <NavLink to="/catalog" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}><ShoppingBag size={20} /> Catalog</NavLink>
         
         <div className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2 mt-6 px-4">Remote Config Engine</div>
-        <NavLink to="/roulette" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}><Radio size={20} /> Roulette Config</NavLink>
         <NavLink to="/ad-placements" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}><Radio size={20} /> Ad Placements</NavLink>
         <NavLink to="/ad-rules" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}><Activity size={20} /> Reward Rules</NavLink>
         <NavLink to="/cap-policies" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}><ShieldCheck size={20} /> Cap Policies</NavLink>
@@ -250,7 +248,6 @@ const App = () => {
               <Route path="/feature-flags" element={<FeatureFlags />} />
               <Route path="/screen-layout" element={<ScreenLayout />} />
               <Route path="/ad-analytics" element={<AdAnalytics />} />
-              <Route path="/roulette" element={<RouletteConfig />} />
 
               <Route path="/affiliate-products" element={<AffiliateProducts />} />
               <Route path="/affiliate-banners" element={<AffiliateBanners />} />

@@ -46,7 +46,6 @@ async function seedAppConfig() {
     { key: 'admob_android_wallet_interstitial_ad_unit_id', value: 'ca-app-pub-9240675969662866/6020571295' },
     { key: 'admob_android_native_ad_unit_id', value: 'ca-app-pub-9240675969662866/4679569467' },
     { key: 'admob_android_news_banner_ad_unit_id', value: 'ca-app-pub-9240675969662866/9296637173' },
-    { key: 'roulette_daily_chances', value: '2' },
   ];
   for (const c of configs) {
     await prisma.appConfig.upsert({ where: { key: c.key }, update: {}, create: c });
@@ -59,7 +58,6 @@ async function seedAdRewardRules() {
     { adType: 'REWARDED', coinsAwarded: 100, dailyCapForType: 8, cooldownSeconds: 60 },
     { adType: 'REWARDED_INTERSTITIAL', coinsAwarded: 50, dailyCapForType: 8, cooldownSeconds: 45 },
     { adType: 'REWARDED_DISCOVER', coinsAwarded: 50, dailyCapForType: 8, cooldownSeconds: 45 },
-    { adType: 'ROULETTE_AD', coinsAwarded: 0, dailyCapForType: 10, cooldownSeconds: 30 },
   ];
   for (const r of rules) {
     await prisma.adRewardRule.upsert({

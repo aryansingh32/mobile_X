@@ -153,16 +153,6 @@ router.get('/ad-analytics/funnel', getAdFunnelAnalytics);
 router.get('/ad-analytics/fill-rate', getFillRateAnalytics);
 router.get('/ad-analytics/revenue-estimate', getRevenueEstimate);
 
-// Roulette
-import {
-  getRouletteItems, createRouletteItem, updateRouletteItem, deleteRouletteItem, getRouletteAnalytics
-} from '../controllers/adminRouletteController';
-router.get('/roulette', authorizeSuperAdmin, getRouletteItems);
-router.post('/roulette', authorizeSuperAdmin, createRouletteItem);
-router.put('/roulette/:id', authorizeSuperAdmin, updateRouletteItem);
-router.delete('/roulette/:id', authorizeSuperAdmin, deleteRouletteItem);
-router.get('/roulette/analytics', authorizeSuperAdmin, getRouletteAnalytics);
-
 // Affiliate marketplace
 import {
   getAdminAffiliateProducts, createAffiliateProduct, updateAffiliateProduct, deleteAffiliateProduct,

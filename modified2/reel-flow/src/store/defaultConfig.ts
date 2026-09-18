@@ -165,14 +165,6 @@ export const BUNDLED_DEFAULT_CONFIG: RemoteConfigPayload = {
       enabled: true,
       requiresFullWatch: true,
     },
-    // FIX: Added ROULETTE_AD rule so roulette ad reward claims succeed
-    ROULETTE_AD: {
-      coinsAwarded: 0, // Roulette spin is the reward, not direct coins
-      dailyCapForType: 5,
-      cooldownSeconds: 30,
-      enabled: true,
-      requiresFullWatch: true,
-    },
   },
   dailyCapPolicies: {
     DEFAULT: {
